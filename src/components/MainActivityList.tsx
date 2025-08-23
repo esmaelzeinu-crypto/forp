@@ -224,9 +224,23 @@ const MainActivityList: React.FC<MainActivityListProps> = ({
         console.log(`Viewing sub-activity: ${subActivity.id}`, subActivity);
         await onViewSubActivity(subActivity);
       } else {
-        console.warn('onViewSubActivity not provided');
-        setActionError('View sub-activity functionality not configured.');
-        setTimeout(() => setActionError(null), 5000);
+        console.warn('onViewSubActivity not provided, using fallback');
+        // Fallback: show sub-activity details in an alert or modal
+        const details = `
+Sub-Activity Details:
+Name: ${subActivity.name}
+Type: ${subActivity.activity_type}
+Description: ${subActivity.description || 'No description'}
+Budget Type: ${subActivity.budget_calculation_type}
+Estimated Cost: ETB ${(subActivity.budget_calculation_type === 'WITH_TOOL' 
+  ? (subActivity.estimated_cost_with_tool || 0) 
+  : (subActivity.estimated_cost_without_tool || 0)).toLocaleString()}
+Government Treasury: ETB ${(subActivity.government_treasury || 0).toLocaleString()}
+SDG Funding: ETB ${(subActivity.sdg_funding || 0).toLocaleString()}
+Partners Funding: ETB ${(subActivity.partners_funding || 0).toLocaleString()}
+Other Funding: ETB ${(subActivity.other_funding || 0).toLocaleString()}
+        `.trim();
+        alert(details);
       }
     } catch (error) {
       console.error('View sub-activity error:', error);
@@ -250,9 +264,20 @@ const MainActivityList: React.FC<MainActivityListProps> = ({
         console.log(`Editing sub-activity budget: ${subActivity.id}`, subActivity);
         onEditSubActivityBudget(subActivity);
       } else {
-        console.warn('onEditSubActivityBudget not provided');
-        setActionError('Edit sub-activity budget functionality not configured.');
-        setTimeout(() => setActionError(null), 5000);
+        console.warn('onEditSubActivityBudget not provided, using fallback');
+        // Fallback: show a simple prompt for budget editing
+        const currentCost = subActivity.budget_calculation_type === 'WITH_TOOL' 
+          ? (subActivity.estimated_cost_with_tool || 0)
+          : (subActivity.estimated_cost_without_tool || 0);
+        
+        const newCost = prompt(
+          `Edit budget for "${subActivity.name}"\nCurrent estimated cost: ETB ${currentCost.toLocaleString()}\n\nEnter new estimated cost (ETB):`,
+          currentCost.toString()
+        );
+        
+        if (newCost !== null && !isNaN(Number(newCost)) && Number(newCost) >= 0) {
+          alert(`Budget update functionality is not yet implemented. New cost would be: ETB ${Number(newCost).toLocaleString()}`);
+        }
       }
     } catch (error) {
       console.error('Edit sub-activity budget error:', error);
@@ -274,9 +299,10 @@ const MainActivityList: React.FC<MainActivityListProps> = ({
         console.log(`Adding sub-activity for: ${activity.id}`, activity);
         onAddSubActivity(activity);
       } else {
-        console.warn('onAddSubActivity not provided');
-        setActionError('Add sub-activity functionality not configured.');
-        setTimeout(() => setActionError(null), 5000);
+        console.warn('onAddSubActivity not provided, using fallback');
+        // Fallback: navigate to a sub-activity creation form or show a modal
+        // For now, we'll show an informative message
+        alert(`Add sub-activity functionality for "${activity.name}" is not yet implemented. This will be available in a future update.`);
       }
     } catch (error) {
       console.error('Add sub-activity error:', error);
@@ -494,13 +520,18 @@ const MainActivityList: React.FC<MainActivityListProps> = ({
                                 {isViewingSubActivity ? <Loader className="h-3 w-3 animate-spin mr-1" /> : <Eye className="h-3 w-3 mr-1" />}
                                 {isViewingSubActivity ? 'Viewing...' : 'View'}
                               </button>
-                            ) : (
-                              <span className="text-xs text-gray-500 flex items-center" title="View disabled: missing permissions or configuration">
-                                <Lock className="h-3 w-3 mr-1" />
-                                View
-                              </span>
-                            )}
-                            {isUserPlanner && onEditSubActivityBudget ? (
+                            ) : isUserPlanner ? (
+                              <button
+                                onClick={(e) => handleViewSubActivity(subActivity, e)}
+                                disabled={isViewingSubActivity}
+                                className="text-xs text-gray-600 hover:text-gray-800 flex items-center p-1 rounded hover:bg-gray-50 disabled:opacity-50"
+                                title="View sub-activity details (fallback mode)"
+                              >
+                                {isViewingSubActivity ? <Loader className="h-3 w-3 animate-spin mr-1" /> : <Eye className="h-3 w-3 mr-1" />}
+                                {isViewingSubActivity ? 'Viewing...' : 'View'}
+                              </button>
+                            ) : null}
+                            {isUserPlanner ? (
                               <button
                                 onClick={(e) => handleEditSubActivityBudget(subActivity, e)}
                                 className="text-xs text-blue-600 hover:text-blue-800 flex items-center p-1 rounded hover:bg-blue-50"
@@ -509,12 +540,7 @@ const MainActivityList: React.FC<MainActivityListProps> = ({
                                 <Edit className="h-3 w-3 mr-1" />
                                 Edit
                               </button>
-                            ) : (
-                              <span className="text-xs text-gray-500 flex items-center" title="Edit disabled: missing permissions or configuration">
-                                <Lock className="h-3 w-3 mr-1" />
-                                Edit
-                              </span>
-                            )}
+                            ) : null}
                             {isUserPlanner && (
                               <button
                                 onClick={(e) => handleDeleteSubActivity(subActivity.id, subActivity.name, e)}
@@ -542,7 +568,7 @@ const MainActivityList: React.FC<MainActivityListProps> = ({
                 ) : (
                   <div className="text-center text-sm text-gray-500">No sub-activities found</div>
                 )}
-                {isUserPlanner && onAddSubActivity ? (
+                {isUserPlanner ? (
                   <button
                     onClick={(e) => handleAddSubActivity(activity, e)}
                     className="mt-3 w-full py-2 px-3 border border-dashed border-gray-300 rounded-md text-sm text-gray-600 hover:border-gray-400 hover:text-gray-700 flex items-center justify-center"
@@ -551,12 +577,7 @@ const MainActivityList: React.FC<MainActivityListProps> = ({
                     <Plus className="h-4 w-4 mr-1" />
                     Add Sub-Activity
                   </button>
-                ) : (
-                  <p className="mt-3 text-sm text-gray-500 flex items-center justify-center" title={isUserPlanner ? 'Add disabled: missing configuration' : 'Add disabled: missing permissions'}>
-                    <Lock className="h-4 w-4 mr-2" />
-                    {isUserPlanner ? 'Add sub-activity functionality not configured' : 'You lack permissions to add sub-activities'}
-                  </p>
-                )}
+                ) : null}
               </div>
               {budgetRequired > 0 && (
                 <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
