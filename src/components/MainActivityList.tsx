@@ -143,11 +143,25 @@ const MainActivityList: React.FC<MainActivityListProps> = ({
     mutationFn: async (activityId: string) => {
       console.log(`Deleting main activity: ${activityId}`);
       try {
-        const response = await mainActivities.delete(activityId);
+        // Ensure fresh authentication and CSRF token
+        await auth.getCurrentUser();
+        
+        // Use direct API call with proper headers
+        const response = await api.delete(`/main-activities/${activityId}/`);
         console.log('Main activity deleted successfully:', response);
         return response;
       } catch (error) {
         console.error('Error deleting main activity:', error);
+        // Re-throw with more context
+        if (error.response?.status === 403) {
+          throw new Error('Permission denied. You may not have rights to delete this activity.');
+        } else if (error.response?.status === 404) {
+          throw new Error('Activity not found. It may have already been deleted.');
+        } else if (error.response?.status === 400) {
+          throw new Error('Cannot delete activity. It may have dependent sub-activities.');
+        } else if (error.response?.status === 500) {
+          throw new Error('Server error occurred. Please try again or contact support.');
+        }
         throw error;
       }
     },
@@ -161,19 +175,7 @@ const MainActivityList: React.FC<MainActivityListProps> = ({
     },
     onError: (error: any) => {
       console.error('Failed to delete main activity:', error);
-      let errorMessage = 'Failed to delete main activity. Please try again.';
-      
-      if (error.response) {
-        if (error.response.status === 404) {
-          errorMessage = 'Main activity not found. It may have already been deleted.';
-        } else if (error.response.status === 403) {
-          errorMessage = 'You do not have permission to delete this main activity.';
-        } else if (error.response.status === 400) {
-          errorMessage = 'Cannot delete main activity. It may have dependent sub-activities.';
-        }
-      }
-      
-      setActionError(errorMessage);
+      setActionError(error.message || 'Failed to delete main activity. Please try again.');
       setTimeout(() => setActionError(null), 5000);
     }
   });
@@ -183,37 +185,46 @@ const MainActivityList: React.FC<MainActivityListProps> = ({
     mutationFn: async (subActivityId: string) => {
       console.log(`Deleting sub-activity: ${subActivityId}`);
       try {
-        const response = await subActivities.delete(subActivityId);
+        // Ensure fresh authentication and CSRF token
+        await auth.getCurrentUser();
+        
+        // Get fresh CSRF token
+        await api.get('/auth/csrf/');
+        
+        // Use direct API call with proper error handling
+        const response = await api.delete(`/sub-activities/${subActivityId}/`);
         console.log('Sub-activity deleted successfully:', response);
         return response;
       } catch (error) {
         console.error('Error deleting sub-activity:', error);
+        
+        // Provide specific error messages based on response
+        if (error.response?.status === 403) {
+          throw new Error('Permission denied. You may not have rights to delete this sub-activity.');
+        } else if (error.response?.status === 404) {
+          throw new Error('Sub-activity not found. It may have already been deleted.');
+        } else if (error.response?.status === 400) {
+          throw new Error('Cannot delete sub-activity. Please check for dependencies.');
+        } else if (error.response?.status === 500) {
+          throw new Error('Server error occurred. Please try again or contact support.');
+        } else if (error.response?.status === 401) {
+          throw new Error('Authentication required. Please refresh the page and try again.');
+        }
+        
         throw error;
       }
     },
     onSuccess: () => {
       console.log('Sub-activity deletion successful, refreshing data...');
       queryClient.invalidateQueries({ queryKey: ['main-activities', initiativeId] });
+      queryClient.invalidateQueries({ queryKey: ['sub-activities'] });
       setValidationSuccess('Sub-activity deleted successfully');
       setTimeout(() => setValidationSuccess(null), 3000);
       refetch();
     },
     onError: (error: any) => {
       console.error('Failed to delete sub-activity:', error);
-      
-      let errorMessage = 'Failed to delete sub-activity. Please try again.';
-      
-      if (error.response) {
-        if (error.response.status === 404) {
-          errorMessage = 'Sub-activity not found. It may have already been deleted.';
-        } else if (error.response.status === 403) {
-          errorMessage = 'You do not have permission to delete this sub-activity.';
-        } else if (error.response.status === 400) {
-          errorMessage = 'Cannot delete sub-activity. Please check for dependencies.';
-        }
-      }
-      
-      setActionError(errorMessage);
+      setActionError(error.message || 'Failed to delete sub-activity. Please try again.');
       setTimeout(() => setActionError(null), 5000);
     }
   });
@@ -395,12 +406,24 @@ const MainActivityList: React.FC<MainActivityListProps> = ({
     e.stopPropagation();
     e.preventDefault();
 
+    // Validate inputs
+    if (!subActivityId || !subActivityName) {
+      setActionError('Invalid sub-activity data. Cannot delete.');
+      setTimeout(() => setActionError(null), 5000);
+      return;
+    }
+
     // Clear any previous messages
     setValidationSuccess(null);
     setActionError(null);
 
-    if (window.confirm(`Are you sure you want to delete the sub-activity "${subActivityName}"? This action cannot be undone.`)) {
+    const confirmMessage = `Are you sure you want to delete the sub-activity "${subActivityName}"?\n\nThis action cannot be undone and will permanently remove:\n- The sub-activity\n- All associated budget data\n- Any costing tool calculations`;
+    
+    if (window.confirm(confirmMessage)) {
+      console.log(`User confirmed deletion of sub-activity: ${subActivityId} (${subActivityName})`);
       deleteSubActivityMutation.mutate(subActivityId);
+    } else {
+      console.log('User cancelled sub-activity deletion');
     }
   };
 
@@ -409,9 +432,24 @@ const MainActivityList: React.FC<MainActivityListProps> = ({
     e.stopPropagation();
     e.preventDefault();
     
-    if (window.confirm(`Are you sure you want to delete "${activityName}" and all its sub-activities? This action cannot be undone.`)) {
+    // Validate inputs
+    if (!activityId || !activityName) {
+      setActionError('Invalid activity data. Cannot delete.');
+      setTimeout(() => setActionError(null), 5000);
+      return;
+    }
+
+    // Clear any previous messages
+    setValidationSuccess(null);
+    setActionError(null);
+    
+    const confirmMessage = `Are you sure you want to delete "${activityName}" and ALL its sub-activities?\n\nThis action cannot be undone and will permanently remove:\n- The main activity\n- All sub-activities under it\n- All associated budget data\n- Any costing tool calculations`;
+    
+    if (window.confirm(confirmMessage)) {
       console.log(`Confirming deletion of main activity: ${activityId}`);
       deleteActivityMutation.mutate(activityId);
+    } else {
+      console.log('User cancelled main activity deletion');
     }
   };
 
