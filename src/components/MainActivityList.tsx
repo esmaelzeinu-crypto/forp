@@ -146,29 +146,97 @@ const MainActivityList: React.FC<MainActivityListProps> = ({
         // Ensure fresh authentication and CSRF token
         await auth.getCurrentUser();
         
-        // Use direct API call with proper headers
-        const response = await api.delete(`/main-activities/${activityId}/`);
+        // Get fresh CSRF token with retry
+        try {
+          await api.get('/auth/csrf/');
+        } catch (csrfError) {
+          console.warn('CSRF token refresh failed, continuing anyway:', csrfError);
+        }
+        
+        // Validate the ID format
+        const normalizedId = normalizeId(activityId);
+        if (!normalizedId) {
+          throw new Error('Invalid main activity ID format');
+        }
+        
+        // Ensure the endpoint URL is properly formatted
+        const endpoint = `/main-activities/${normalizedId}/`;
+        console.log(`Making DELETE request to: ${endpoint}`);
+        
+        // Add retry logic for production
+        let response;
+        let retryCount = 0;
+        const maxRetries = 2;
+        
+        while (retryCount <= maxRetries) {
+          try {
+            response = await api.delete(endpoint, {
+              timeout: 15000, // 15 second timeout for main activities (may have more dependencies)
+              headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+              }
+            });
+            break; // Success, exit retry loop
+          } catch (retryError) {
+            retryCount++;
+            console.error(`Delete attempt ${retryCount} failed:`, retryError);
+            
+            if (retryCount > maxRetries) {
+              throw retryError; // Final attempt failed
+            }
+            
+            // Wait before retry (exponential backoff)
+            await new Promise(resolve => setTimeout(resolve, 1500 * retryCount));
+            
+            // Refresh auth before retry
+            try {
+              await auth.getCurrentUser();
+            } catch (authError) {
+              console.warn('Auth refresh failed during retry:', authError);
+            }
+          }
+        }
+        
         console.log('Main activity deleted successfully:', response);
         return response;
       } catch (error) {
         console.error('Error deleting main activity:', error);
-        // Re-throw with more context
-        if (error.response?.status === 403) {
+        console.error('Error details:', {
+          status: error.response?.status,
+          statusText: error.response?.statusText,
+          data: error.response?.data,
+          url: error.config?.url,
+          method: error.config?.method
+        });
+        
+        // Provide specific error messages based on response
+        if (error.response?.status === 500) {
+          throw new Error('Server error occurred. The main activity may have sub-activities or other dependencies preventing deletion. Please delete all sub-activities first or contact support.');
+        } else if (error.response?.status === 403) {
           throw new Error('Permission denied. You may not have rights to delete this activity.');
         } else if (error.response?.status === 404) {
           throw new Error('Activity not found. It may have already been deleted.');
         } else if (error.response?.status === 400) {
-          throw new Error('Cannot delete activity. It may have dependent sub-activities.');
-        } else if (error.response?.status === 500) {
-          throw new Error('Server error occurred. Please try again or contact support.');
+          const errorMsg = error.response?.data?.detail || error.response?.data?.message || 'Bad request';
+          throw new Error(`Cannot delete main activity: ${errorMsg}. You may need to delete all sub-activities first.`);
+        } else if (error.response?.status === 401) {
+          throw new Error('Authentication required. Please refresh the page and try again.');
+        } else if (error.code === 'ECONNABORTED') {
+          throw new Error('Request timeout. Please check your connection and try again.');
+        } else if (!error.response) {
+          throw new Error('Network error. Please check your connection and try again.');
         }
-        throw error;
+        
+        // Fallback error message
+        throw new Error(`Failed to delete main activity: ${error.message || 'Unknown error'}`);
       }
     },
     onSuccess: () => {
       console.log('Main activity deletion successful, refreshing data...');
       queryClient.invalidateQueries({ queryKey: ['main-activities', initiativeId] });
       queryClient.invalidateQueries({ queryKey: ['initiatives'] });
+      queryClient.invalidateQueries({ queryKey: ['objectives'] });
       setValidationSuccess('Main activity deleted successfully');
       setTimeout(() => setValidationSuccess(null), 3000);
       refetch();
@@ -188,36 +256,97 @@ const MainActivityList: React.FC<MainActivityListProps> = ({
         // Ensure fresh authentication and CSRF token
         await auth.getCurrentUser();
         
-        // Get fresh CSRF token
-        await api.get('/auth/csrf/');
+        // Get fresh CSRF token with retry
+        try {
+          await api.get('/auth/csrf/');
+        } catch (csrfError) {
+          console.warn('CSRF token refresh failed, continuing anyway:', csrfError);
+        }
         
-        // Use direct API call with proper error handling
-        const response = await api.delete(`/sub-activities/${subActivityId}/`);
+        // Validate the ID format
+        const normalizedId = normalizeId(subActivityId);
+        if (!normalizedId) {
+          throw new Error('Invalid sub-activity ID format');
+        }
+        
+        // Ensure the endpoint URL is properly formatted
+        const endpoint = `/sub-activities/${normalizedId}/`;
+        console.log(`Making DELETE request to: ${endpoint}`);
+        
+        // Add retry logic for production
+        let response;
+        let retryCount = 0;
+        const maxRetries = 2;
+        
+        while (retryCount <= maxRetries) {
+          try {
+            response = await api.delete(endpoint, {
+              timeout: 10000, // 10 second timeout
+              headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+              }
+            });
+            break; // Success, exit retry loop
+          } catch (retryError) {
+            retryCount++;
+            console.error(`Delete attempt ${retryCount} failed:`, retryError);
+            
+            if (retryCount > maxRetries) {
+              throw retryError; // Final attempt failed
+            }
+            
+            // Wait before retry (exponential backoff)
+            await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
+            
+            // Refresh auth before retry
+            try {
+              await auth.getCurrentUser();
+            } catch (authError) {
+              console.warn('Auth refresh failed during retry:', authError);
+            }
+          }
+        }
+        
         console.log('Sub-activity deleted successfully:', response);
         return response;
       } catch (error) {
         console.error('Error deleting sub-activity:', error);
+        console.error('Error details:', {
+          status: error.response?.status,
+          statusText: error.response?.statusText,
+          data: error.response?.data,
+          url: error.config?.url,
+          method: error.config?.method
+        });
         
         // Provide specific error messages based on response
-        if (error.response?.status === 403) {
+        if (error.response?.status === 500) {
+          throw new Error('Server error occurred. The sub-activity may have dependencies or constraints preventing deletion. Please contact support if this persists.');
+        } else if (error.response?.status === 403) {
           throw new Error('Permission denied. You may not have rights to delete this sub-activity.');
         } else if (error.response?.status === 404) {
           throw new Error('Sub-activity not found. It may have already been deleted.');
         } else if (error.response?.status === 400) {
-          throw new Error('Cannot delete sub-activity. Please check for dependencies.');
-        } else if (error.response?.status === 500) {
-          throw new Error('Server error occurred. Please try again or contact support.');
+          const errorMsg = error.response?.data?.detail || error.response?.data?.message || 'Bad request';
+          throw new Error(`Cannot delete sub-activity: ${errorMsg}`);
         } else if (error.response?.status === 401) {
           throw new Error('Authentication required. Please refresh the page and try again.');
+        } else if (error.code === 'ECONNABORTED') {
+          throw new Error('Request timeout. Please check your connection and try again.');
+        } else if (!error.response) {
+          throw new Error('Network error. Please check your connection and try again.');
         }
         
-        throw error;
+        // Fallback error message
+        throw new Error(`Failed to delete sub-activity: ${error.message || 'Unknown error'}`);
       }
     },
     onSuccess: () => {
       console.log('Sub-activity deletion successful, refreshing data...');
       queryClient.invalidateQueries({ queryKey: ['main-activities', initiativeId] });
       queryClient.invalidateQueries({ queryKey: ['sub-activities'] });
+      queryClient.invalidateQueries({ queryKey: ['initiatives'] });
       setValidationSuccess('Sub-activity deleted successfully');
       setTimeout(() => setValidationSuccess(null), 3000);
       refetch();
