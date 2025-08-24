@@ -142,66 +142,65 @@ const MainActivityList: React.FC<MainActivityListProps> = ({
   const deleteActivityMutation = useMutation({
     mutationFn: async (activityId: string) => {
       console.log(`Deleting main activity: ${activityId}`);
-      return await api.delete(`/main-activities/${activityId}/`);
-    },
-    onMutate: async (activityId) => {
-      await queryClient.cancelQueries({ queryKey: ['main-activities', initiativeId] });
-      const previousActivities = queryClient.getQueryData(['main-activities', initiativeId, planKey]);
-      if (previousActivities?.data) {
-        queryClient.setQueryData(['main-activities', initiativeId, planKey], {
-          ...previousActivities,
-          data: previousActivities.data.filter((activity: any) => activity.id !== activityId),
-        });
+      try {
+        const response = await mainActivities.delete(activityId);
+        console.log('Main activity deleted successfully:', response);
+        return response;
+      } catch (error) {
+        console.error('Error deleting main activity:', error);
+        throw error;
       }
-      return { previousActivities };
-    },
-    onError: (err: any, _, context) => {
-      console.error('Failed to delete activity:', err);
-      if (context?.previousActivities) {
-        queryClient.setQueryData(['main-activities', initiativeId, planKey], context.previousActivities);
-      }
-      setActionError(err.response?.data?.detail || 'Failed to delete activity.');
-      setTimeout(() => setActionError(null), 5000);
     },
     onSuccess: () => {
+      console.log('Main activity deletion successful, refreshing data...');
       queryClient.invalidateQueries({ queryKey: ['main-activities', initiativeId] });
       queryClient.invalidateQueries({ queryKey: ['initiatives'] });
+      setValidationSuccess('Main activity deleted successfully');
+      setTimeout(() => setValidationSuccess(null), 3000);
       refetch();
     },
+    onError: (error: any) => {
+      console.error('Failed to delete main activity:', error);
+      let errorMessage = 'Failed to delete main activity. Please try again.';
+      
+      if (error.response) {
+        if (error.response.status === 404) {
+          errorMessage = 'Main activity not found. It may have already been deleted.';
+        } else if (error.response.status === 403) {
+          errorMessage = 'You do not have permission to delete this main activity.';
+        } else if (error.response.status === 400) {
+          errorMessage = 'Cannot delete main activity. It may have dependent sub-activities.';
+        }
+      }
+      
+      setActionError(errorMessage);
+      setTimeout(() => setActionError(null), 5000);
+    }
   });
 
   // Enhanced delete sub-activity mutation with production-friendly error handling
   const deleteSubActivityMutation = useMutation({
     mutationFn: async (subActivityId: string) => {
+      console.log(`Deleting sub-activity: ${subActivityId}`);
       try {
-        console.log(`Attempting to delete sub-activity: ${subActivityId}`);
-        // Use consistent API endpoint for production
-        return await api.delete(`/sub-activities/${subActivityId}/`);
+        const response = await subActivities.delete(subActivityId);
+        console.log('Sub-activity deleted successfully:', response);
+        return response;
       } catch (error) {
-        console.error('Detailed delete error:', error);
-        
-        // Enhanced error logging for production debugging
-        if (error.response) {
-          console.error('Server responded with:', error.response.status, error.response.data);
-        } else if (error.request) {
-          console.error('No response received:', error.request);
-        } else {
-          console.error('Error setting up request:', error.message);
-        }
-
+        console.error('Error deleting sub-activity:', error);
         throw error;
       }
     },
     onSuccess: () => {
-      // Invalidate queries to refresh data
+      console.log('Sub-activity deletion successful, refreshing data...');
       queryClient.invalidateQueries({ queryKey: ['main-activities', initiativeId] });
       setValidationSuccess('Sub-activity deleted successfully');
       setTimeout(() => setValidationSuccess(null), 3000);
+      refetch();
     },
     onError: (error: any) => {
       console.error('Failed to delete sub-activity:', error);
       
-      // User-friendly error messages based on error type
       let errorMessage = 'Failed to delete sub-activity. Please try again.';
       
       if (error.response) {
@@ -209,13 +208,9 @@ const MainActivityList: React.FC<MainActivityListProps> = ({
           errorMessage = 'Sub-activity not found. It may have already been deleted.';
         } else if (error.response.status === 403) {
           errorMessage = 'You do not have permission to delete this sub-activity.';
-        } else if (error.response.status === 500) {
-          errorMessage = 'Server error. Please try again or contact support.';
-        } else {
-          errorMessage = `Server error (${error.response.status}). Please try again.`;
+        } else if (error.response.status === 400) {
+          errorMessage = 'Cannot delete sub-activity. Please check for dependencies.';
         }
-      } else if (error.request) {
-        errorMessage = 'Network error. Please check your connection and try again.';
       }
       
       setActionError(errorMessage);
@@ -410,10 +405,13 @@ const MainActivityList: React.FC<MainActivityListProps> = ({
   };
 
   // Handle activity deletion
-  const handleDeleteActivity = async (activityId: string, activityName: string, e: React.MouseEvent) => {
+  const handleDeleteActivity = (activityId: string, activityName: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (window.confirm(`Delete "${activityName}" and its sub-activities?`)) {
-      await deleteActivityMutation.mutateAsync(activityId);
+    e.preventDefault();
+    
+    if (window.confirm(`Are you sure you want to delete "${activityName}" and all its sub-activities? This action cannot be undone.`)) {
+      console.log(`Confirming deletion of main activity: ${activityId}`);
+      deleteActivityMutation.mutate(activityId);
     }
   };
 
