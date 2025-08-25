@@ -250,10 +250,118 @@ const PlansTable: React.FC<PlansTableProps> = ({ onCreateNewPlan, userOrgId }) =
         }
       } catch (error) {
         console.error('Error fetching user plans:', error);
-        return [];
+    mutationFn: async (activityId: string) => {
+      console.log('Planning: Deleting main activity:', activityId);
+      
+      try {
+        // Ensure user is authenticated
+        await auth.getCurrentUser();
+        
+        // Use the main activities API service
+        const response = await mainActivities.delete(activityId);
+        console.log('Planning: Main activity deleted successfully');
+        return response;
+        
+      } catch (error) {
+        console.error('Planning: Delete main activity error:', error);
+        
+        // Handle specific production errors
+        if (error.response?.status === 500) {
+          throw new Error('Unable to delete main activity. It may have sub-activities that need to be removed first.');
+        } else if (error.response?.status === 404) {
+          throw new Error('Main activity not found or already deleted.');
+        } else if (error.response?.status === 403) {
+          throw new Error('You do not have permission to delete this main activity.');
+        }
+        
+        throw error;
+    mutationFn: async (measureId: string) => {
+      console.log('Planning: Deleting performance measure:', measureId);
+      
+      try {
+        // Ensure user is authenticated
+        await auth.getCurrentUser();
+        
+        // Use the performance measures API service
+        const response = await performanceMeasures.delete(measureId);
+        console.log('Planning: Performance measure deleted successfully');
+        return response;
+        
+      } catch (error) {
+        console.error('Planning: Delete performance measure error:', error);
+        
+        // Handle specific production errors
+        if (error.response?.status === 500) {
+          throw new Error('Unable to delete performance measure due to server constraints.');
+        } else if (error.response?.status === 404) {
+          throw new Error('Performance measure not found or already deleted.');
+        } else if (error.response?.status === 403) {
+          throw new Error('You do not have permission to delete this performance measure.');
+        }
+        
+        throw error;
       }
     },
-    enabled: !!userOrgId,
+    },
+      console.log('Planning: Performance measure deletion successful, refreshing data');
+      // Refresh the measures list
+      queryClient.invalidateQueries({ queryKey: ['performance-measures'] });
+      queryClient.invalidateQueries({ queryKey: ['initiatives'] });
+      setSuccess('Performance measure deleted successfully');
+      setTimeout(() => setSuccess(null), 3000);
+    },
+    onError: (error: any) => {
+      console.error('Planning: Delete performance measure mutation error:', error);
+      setError(error.message || 'Failed to delete performance measure');
+      setTimeout(() => setError(null), 5000);
+      // Refresh the activities list
+      queryClient.invalidateQueries({ queryKey: ['main-activities'] });
+      queryClient.invalidateQueries({ queryKey: ['initiatives'] });
+      setSuccess('Main activity deleted successfully');
+      setTimeout(() => setSuccess(null), 3000);
+    mutationFn: async (initiativeId: string) => {
+      console.log('Planning: Deleting initiative:', initiativeId);
+      
+      try {
+        // Ensure user is authenticated
+        await auth.getCurrentUser();
+        
+        // Use the initiatives API service
+        const response = await initiatives.delete(initiativeId);
+        console.log('Planning: Initiative deleted successfully');
+        return response;
+        
+      } catch (error) {
+        console.error('Planning: Delete initiative error:', error);
+        
+        // Handle specific production errors
+        if (error.response?.status === 500) {
+          throw new Error('Unable to delete initiative. It may have performance measures or main activities that need to be removed first.');
+        } else if (error.response?.status === 404) {
+          throw new Error('Initiative not found or already deleted.');
+        } else if (error.response?.status === 403) {
+          throw new Error('You do not have permission to delete this initiative.');
+        }
+        
+        throw error;
+      }
+    },
+    onError: (error: any) => {
+      console.log('Planning: Initiative deletion successful, refreshing data');
+      // Refresh the initiatives list
+      queryClient.invalidateQueries({ queryKey: ['initiatives'] });
+      queryClient.invalidateQueries({ queryKey: ['objectives'] });
+      setSuccess('Initiative deleted successfully');
+      setTimeout(() => setSuccess(null), 3000);
+      
+      // Reset selected initiative if it was the deleted one
+      setTimeout(() => setError(null), 5000);
+      setSelectedInitiativeData(null);
+    },
+    onError: (error: any) => {
+      console.error('Planning: Delete initiative mutation error:', error);
+      setError(error.message || 'Failed to delete initiative');
+      setTimeout(() => setError(null), 5000);
     retry: 2
   });
 
