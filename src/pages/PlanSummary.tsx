@@ -584,9 +584,25 @@ const PlanSummary: React.FC = () => {
           </div>
           <div className="text-center">
             <div className="text-2xl font-bold text-green-600">
-              {plan.objectives?.reduce((total: number, obj: any) =>
-                total + (obj.initiatives?.length || 0), 0
-              ) || 0}
+              {plan.objectives?.reduce((total: number, obj: any) => {
+                if (!obj.initiatives) return total;
+                
+                // Filter initiatives by planner organization (same logic as budget calculation)
+                const plannerInitiatives = obj.initiatives.filter((initiative: any) => {
+                  if (!initiative) return false;
+                  
+                  // Include initiatives that belong to the planner's organization
+                  const belongsToPlannerOrg = userOrgId && initiative.organization &&
+                                            Number(initiative.organization) === Number(userOrgId);
+                  
+                  // Also include default initiatives (they belong to Ministry of Health)
+                  const isDefaultInitiative = initiative.is_default === true;
+                  
+                  return belongsToPlannerOrg || isDefaultInitiative;
+                });
+                
+                return total + plannerInitiatives.length;
+              }, 0) || 0}
             </div>
             <div className="text-sm text-gray-500">Strategic Initiatives</div>
           </div>
