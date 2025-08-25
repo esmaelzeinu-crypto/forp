@@ -250,6 +250,15 @@ const PlansTable: React.FC<PlansTableProps> = ({ onCreateNewPlan, userOrgId }) =
         }
       } catch (error) {
         console.error('Error fetching user plans:', error);
+        return [];
+      }
+    },
+    enabled: !!userOrgId,
+    retry: 2
+  });
+
+  // Delete main activity mutation
+  const deleteMainActivityMutation = useMutation({
     mutationFn: async (activityId: string) => {
       console.log('Planning: Deleting main activity:', activityId);
       
@@ -275,6 +284,25 @@ const PlansTable: React.FC<PlansTableProps> = ({ onCreateNewPlan, userOrgId }) =
         }
         
         throw error;
+      }
+    },
+    onSuccess: () => {
+      console.log('Planning: Main activity deletion successful, refreshing data');
+      // Refresh the activities list
+      queryClient.invalidateQueries({ queryKey: ['main-activities'] });
+      queryClient.invalidateQueries({ queryKey: ['initiatives'] });
+      setSuccess('Main activity deleted successfully');
+      setTimeout(() => setSuccess(null), 3000);
+    },
+    onError: (error: any) => {
+      console.error('Planning: Delete main activity mutation error:', error);
+      setError(error.message || 'Failed to delete main activity');
+      setTimeout(() => setError(null), 5000);
+    }
+  });
+
+  // Delete performance measure mutation
+  const deletePerformanceMeasureMutation = useMutation({
     mutationFn: async (measureId: string) => {
       console.log('Planning: Deleting performance measure:', measureId);
       
@@ -302,7 +330,7 @@ const PlansTable: React.FC<PlansTableProps> = ({ onCreateNewPlan, userOrgId }) =
         throw error;
       }
     },
-    },
+    onSuccess: () => {
       console.log('Planning: Performance measure deletion successful, refreshing data');
       // Refresh the measures list
       queryClient.invalidateQueries({ queryKey: ['performance-measures'] });
@@ -314,11 +342,11 @@ const PlansTable: React.FC<PlansTableProps> = ({ onCreateNewPlan, userOrgId }) =
       console.error('Planning: Delete performance measure mutation error:', error);
       setError(error.message || 'Failed to delete performance measure');
       setTimeout(() => setError(null), 5000);
-      // Refresh the activities list
-      queryClient.invalidateQueries({ queryKey: ['main-activities'] });
-      queryClient.invalidateQueries({ queryKey: ['initiatives'] });
-      setSuccess('Main activity deleted successfully');
-      setTimeout(() => setSuccess(null), 3000);
+    }
+  });
+
+  // Delete initiative mutation
+  const deleteInitiativeMutation = useMutation({
     mutationFn: async (initiativeId: string) => {
       console.log('Planning: Deleting initiative:', initiativeId);
       
@@ -346,7 +374,7 @@ const PlansTable: React.FC<PlansTableProps> = ({ onCreateNewPlan, userOrgId }) =
         throw error;
       }
     },
-    onError: (error: any) => {
+    onSuccess: () => {
       console.log('Planning: Initiative deletion successful, refreshing data');
       // Refresh the initiatives list
       queryClient.invalidateQueries({ queryKey: ['initiatives'] });
@@ -355,14 +383,13 @@ const PlansTable: React.FC<PlansTableProps> = ({ onCreateNewPlan, userOrgId }) =
       setTimeout(() => setSuccess(null), 3000);
       
       // Reset selected initiative if it was the deleted one
-      setTimeout(() => setError(null), 5000);
       setSelectedInitiativeData(null);
     },
     onError: (error: any) => {
       console.error('Planning: Delete initiative mutation error:', error);
       setError(error.message || 'Failed to delete initiative');
       setTimeout(() => setError(null), 5000);
-    retry: 2
+    }
   });
 
   const formatDate = (dateString: string) => {
@@ -496,6 +523,7 @@ const PlansTable: React.FC<PlansTableProps> = ({ onCreateNewPlan, userOrgId }) =
     </div>
   );
 };
+
 const Planning: React.FC = () => {
   const { t } = useLanguage();
   const navigate = useNavigate();
@@ -551,6 +579,7 @@ const Planning: React.FC = () => {
   const [selectedObjective, setSelectedObjective] = useState<StrategicObjective | null>(null);
   const [selectedProgram, setSelectedProgram] = useState<Program | null>(null);
   const [selectedInitiative, setSelectedInitiative] = useState<StrategicInitiative | null>(null);
+  const [selectedInitiativeData, setSelectedInitiativeData] = useState<any>(null);
   const [showInitiativeForm, setShowInitiativeForm] = useState(false);
   const [showMeasureForm, setShowMeasureForm] = useState(false);
   const [showActivityForm, setShowActivityForm] = useState(false);
@@ -804,165 +833,166 @@ const Planning: React.FC = () => {
 
   // Handle submit plan with data refresh
   const handleSubmitPlan = async (data: any) => {
-  try {
-    setIsSubmittingPlan(true);
-    setSubmitError(null);
-    setSubmitSuccess(null);
+    try {
+      setIsSubmittingPlan(true);
+      setSubmitError(null);
+      setSubmitSuccess(null);
 
-    console.log('Planning: Starting plan submission...');
+      console.log('Planning: Starting plan submission...');
 
-    if (!userOrganization?.name || !plannerName || !fromDate || !toDate) {
-      setSubmitError('Please fill in all required fields (organization, planner, dates)');
-      return;
-    }
+      if (!userOrganization?.name || !plannerName || !fromDate || !toDate) {
+        setSubmitError('Please fill in all required fields (organization, planner, dates)');
+        return;
+      }
 
-    // Validate that we have selected objectives
-    if (!selectedObjectives || selectedObjectives.length === 0) {
-      setSubmitError('No objectives selected. Please select at least one objective before submitting.');
-      setIsSubmittingPlan(false);
-      return;
-    }
-    
-    // Validate that we have user organization ID
-    if (!userOrgId) {
-      setSubmitError('User organization not found. Please refresh the page and try again.');
-      setIsSubmittingPlan(false);
-      return;
-    }
-
-    if (selectedObjectives.length === 0) {
-      setSubmitError('Please select at least one strategic objective');
-      return;
-    }
-
-    if (Math.abs(totalWeight - 100) > 0.01) {
-      setSubmitError(`Total objective weights must equal 100%. Current total: ${totalWeight.toFixed(2)}%`);
-      return;
-    }
-
-    // Get user organization ID
-    const authData = await auth.getCurrentUser();
-    const plannerOrgId = authData.userOrganizations?.[0]?.organization;
-    
-    if (!plannerOrgId) {
-      throw new Error('User organization not found. Please refresh and try again.');
-    }
-    
-    // Filter selected objectives to only include those for the planner's organization
-    const plannerObjectives = selectedObjectives.filter(obj => {
-      // Always include default objectives
-      if (obj.is_default) return true;
+      // Validate that we have selected objectives
+      if (!selectedObjectives || selectedObjectives.length === 0) {
+        setSubmitError('No objectives selected. Please select at least one objective before submitting.');
+        setIsSubmittingPlan(false);
+        return;
+      }
       
-      // Include custom objectives that belong to the planner's organization
-      if (!obj.is_default && obj.organization_id) {
-        return Number(obj.organization_id) === Number(userOrgId);
+      // Validate that we have user organization ID
+      if (!userOrgId) {
+        setSubmitError('User organization not found. Please refresh the page and try again.');
+        setIsSubmittingPlan(false);
+        return;
       }
-      return Number(obj.organization_id) === Number(plannerOrgId);
-      // Include objectives with no organization (legacy)
-      return !obj.organization_id;
-    });
-    
-    console.log('Planning: Filtered objectives for planner org:', plannerObjectives.length);
-    
-    // Convert selected objectives to IDs only
-    const selectedObjectiveIds = selectedObjectives.map(obj => {
-      if (typeof obj === 'object' && obj.id) {
-        return Number(obj.id);
-      } else if (typeof obj === 'number' || typeof obj === 'string') {
-        return Number(obj);
+
+      if (selectedObjectives.length === 0) {
+        setSubmitError('Please select at least one strategic objective');
+        return;
       }
-      throw new Error(`Invalid objective format: ${typeof obj}`);
-    });
-    
-    console.log('Planning: Selected objective IDs:', selectedObjectiveIds);
-    
-    // Validate that we have weights for all selected objectives
-    const hasAllWeights = selectedObjectiveIds.every(id => 
-      selectedObjectivesWeights[id] !== undefined
-    );
-    
-    if (!hasAllWeights) {
-      throw new Error('Missing weights for some selected objectives');
-    }
-    
-    // Create weights mapping for submission
-    const weightsForSubmission: Record<string, number> = {};
-    selectedObjectiveIds.forEach(id => {
-      const weight = selectedObjectivesWeights[id];
-      if (weight !== undefined) {
-        weightsForSubmission[String(id)] = Number(weight);
+
+      if (Math.abs(totalWeight - 100) > 0.01) {
+        setSubmitError(`Total objective weights must equal 100%. Current total: ${totalWeight.toFixed(2)}%`);
+        return;
       }
-    });
-    
-    // Validate filtered total weight
-    const filteredTotalWeight = Object.values(weightsForSubmission).reduce(
-      (sum, weight) => sum + weight, 
-      0
-    );
-    
-    if (Math.abs(filteredTotalWeight - 100) > 0.01) {
-      throw new Error(`Objectives weights must total 100%. Current: ${filteredTotalWeight.toFixed(2)}%`);
-    }
-    
-    const planData = {
-      organization: userOrgId,
-      planner_name: plannerName,
-      type: selectedPlanType,
-      fiscal_year: new Date(fromDate).getFullYear().toString(),
-      from_date: fromDate,
-      to_date: toDate,
-      status: 'SUBMITTED',
-      selected_objectives: selectedObjectiveIds,
-      selected_objectives_weights: weightsForSubmission,
-      strategic_objective: selectedObjectiveIds[0] || null
-    };
 
-    console.log('Planning: Submitting plan with data:', planData);
-
-    const response = await plans.create(planData);
-
-    if (response.error) {
-      throw new Error(response.error);
-    }
-
-    console.log('Planning: Plan submitted successfully:', response);
-
-    setSubmitSuccess('Plan submitted successfully!');
-    setShowSuccessModal(true);
-
-    await queryClient.invalidateQueries({ queryKey: ['user-plans'] });
-
-  } catch (error: any) {
-    console.error('Planning: Plan submission failed:', error);
-
-    let errorMessage = 'Failed to submit plan';
-    if (error.response?.data) {
-      if (typeof error.response.data === 'string') {
-        errorMessage = error.response.data;
-      } else if (error.response.data.detail) {
-        errorMessage = error.response.data.detail;
-      } else if (error.response.data.non_field_errors) {
-        errorMessage = Array.isArray(error.response.data.non_field_errors)
-          ? error.response.data.non_field_errors.join(', ')
-          : error.response.data.non_field_errors;
-      } else {
-        const fieldErrors = Object.entries(error.response.data)
-          .map(([field, errors]) => {
-            const errorList = Array.isArray(errors) ? errors : [errors];
-            return `${field}: ${errorList.join(', ')}`;
-          })
-          .join('; ');
-        errorMessage = fieldErrors || errorMessage;
+      // Get user organization ID
+      const authData = await auth.getCurrentUser();
+      const plannerOrgId = authData.userOrganizations?.[0]?.organization;
+      
+      if (!plannerOrgId) {
+        throw new Error('User organization not found. Please refresh and try again.');
       }
-    } else if (error.message) {
-      errorMessage = error.message;
-    }
+      
+      // Filter selected objectives to only include those for the planner's organization
+      const plannerObjectives = selectedObjectives.filter(obj => {
+        // Always include default objectives
+        if (obj.is_default) return true;
+        
+        // Include custom objectives that belong to the planner's organization
+        if (!obj.is_default && obj.organization_id) {
+          return Number(obj.organization_id) === Number(userOrgId);
+        }
+        return Number(obj.organization_id) === Number(plannerOrgId);
+        // Include objectives with no organization (legacy)
+        return !obj.organization_id;
+      });
+      
+      console.log('Planning: Filtered objectives for planner org:', plannerObjectives.length);
+      
+      // Convert selected objectives to IDs only
+      const selectedObjectiveIds = selectedObjectives.map(obj => {
+        if (typeof obj === 'object' && obj.id) {
+          return Number(obj.id);
+        } else if (typeof obj === 'number' || typeof obj === 'string') {
+          return Number(obj);
+        }
+        throw new Error(`Invalid objective format: ${typeof obj}`);
+      });
+      
+      console.log('Planning: Selected objective IDs:', selectedObjectiveIds);
+      
+      // Validate that we have weights for all selected objectives
+      const hasAllWeights = selectedObjectiveIds.every(id => 
+        selectedObjectivesWeights[id] !== undefined
+      );
+      
+      if (!hasAllWeights) {
+        throw new Error('Missing weights for some selected objectives');
+      }
+      
+      // Create weights mapping for submission
+      const weightsForSubmission: Record<string, number> = {};
+      selectedObjectiveIds.forEach(id => {
+        const weight = selectedObjectivesWeights[id];
+        if (weight !== undefined) {
+          weightsForSubmission[String(id)] = Number(weight);
+        }
+      });
+      
+      // Validate filtered total weight
+      const filteredTotalWeight = Object.values(weightsForSubmission).reduce(
+        (sum, weight) => sum + weight, 
+        0
+      );
+      
+      if (Math.abs(filteredTotalWeight - 100) > 0.01) {
+        throw new Error(`Objectives weights must total 100%. Current: ${filteredTotalWeight.toFixed(2)}%`);
+      }
+      
+      const planData = {
+        organization: userOrgId,
+        planner_name: plannerName,
+        type: selectedPlanType,
+        fiscal_year: new Date(fromDate).getFullYear().toString(),
+        from_date: fromDate,
+        to_date: toDate,
+        status: 'SUBMITTED',
+        selected_objectives: selectedObjectiveIds,
+        selected_objectives_weights: weightsForSubmission,
+        strategic_objective: selectedObjectiveIds[0] || null
+      };
 
-    setSubmitError(errorMessage);
-  } finally {
-    setIsSubmittingPlan(false);
-  }
-};
+      console.log('Planning: Submitting plan with data:', planData);
+
+      const response = await plans.create(planData);
+
+      if (response.error) {
+        throw new Error(response.error);
+      }
+
+      console.log('Planning: Plan submitted successfully:', response);
+
+      setSubmitSuccess('Plan submitted successfully!');
+      setShowSuccessModal(true);
+
+      await queryClient.invalidateQueries({ queryKey: ['user-plans'] });
+
+    } catch (error: any) {
+      console.error('Planning: Plan submission failed:', error);
+
+      let errorMessage = 'Failed to submit plan';
+      if (error.response?.data) {
+        if (typeof error.response.data === 'string') {
+          errorMessage = error.response.data;
+        } else if (error.response.data.detail) {
+          errorMessage = error.response.data.detail;
+        } else if (error.response.data.non_field_errors) {
+          errorMessage = Array.isArray(error.response.data.non_field_errors)
+            ? error.response.data.non_field_errors.join(', ')
+            : error.response.data.non_field_errors;
+        } else {
+          const fieldErrors = Object.entries(error.response.data)
+            .map(([field, errors]) => {
+              const errorList = Array.isArray(errors) ? errors : [errors];
+              return `${field}: ${errorList.join(', ')}`;
+            })
+            .join('; ');
+          errorMessage = fieldErrors || errorMessage;
+        }
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+
+      setSubmitError(errorMessage);
+    } finally {
+      setIsSubmittingPlan(false);
+    }
+  };
+
   // Early return for auth check
   if (!authChecked) {
     return (
