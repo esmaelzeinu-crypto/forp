@@ -376,32 +376,6 @@ const PlansTable: React.FC<PlansTableProps> = ({ onCreateNewPlan, userOrgId }) =
         throw error;
       }
     },
-      console.log('Planning: Deleting initiative:', initiativeId);
-      
-      try {
-        // Ensure user is authenticated
-        await auth.getCurrentUser();
-        
-        // Use the initiatives API service
-        const response = await initiatives.delete(initiativeId);
-        console.log('Planning: Initiative deleted successfully');
-        return response;
-        
-      } catch (error) {
-        console.error('Planning: Delete initiative error:', error);
-        
-        // Handle specific production errors
-        if (error.response?.status === 500) {
-          throw new Error('Unable to delete initiative. It may have performance measures or main activities that need to be removed first.');
-        } else if (error.response?.status === 404) {
-          throw new Error('Initiative not found or already deleted.');
-        } else if (error.response?.status === 403) {
-          throw new Error('You do not have permission to delete this initiative.');
-        }
-        
-        throw error;
-      }
-    },
     onSuccess: () => {
       console.log('Planning: Initiative delete mutation successful');
       setSuccess('Initiative deleted successfully');
@@ -426,11 +400,6 @@ const PlansTable: React.FC<PlansTableProps> = ({ onCreateNewPlan, userOrgId }) =
       
       // Reset selected initiative if it was the deleted one
       setSelectedInitiativeData(null);
-    },
-    onError: (error: any) => {
-      console.error('Planning: Delete initiative mutation error:', error);
-      setError(error.message || 'Failed to delete initiative');
-      setTimeout(() => setError(null), 5000);
     }
   });
 
