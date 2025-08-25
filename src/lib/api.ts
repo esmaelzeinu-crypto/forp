@@ -1424,14 +1424,30 @@ export const subActivities = {
   create: (data: any) => api.post('/sub-activities/', data),
   update: (id: string, data: any) => api.put(`/sub-activities/${id}/`, data),
   delete: async (id: string) => {
+    console.log('API: Deleting sub-activity:', id);
     try {
-      console.log(`API: Deleting sub-activity ${id}`);
       const response = await api.delete(`/sub-activities/${id}/`);
-      console.log(`API: Sub-activity ${id} deleted successfully`);
+      console.log('API: Sub-activity deleted successfully:', id);
       return response;
-    } catch (error) {
-      console.error(`API: Error deleting sub-activity ${id}:`, error);
-      throw error;
+    } catch (error: any) {
+      console.error('API: Error deleting sub-activity:', id, error);
+      console.error('API: Error response:', error.response?.data);
+      console.error('API: Error status:', error.response?.status);
+      
+      // Enhanced error handling for production
+      if (error.response?.status === 500) {
+        throw new Error('Server error occurred while deleting. The sub-activity may have budget dependencies.');
+      } else if (error.response?.status === 404) {
+        throw new Error('Sub-activity not found. It may have already been deleted.');
+      } else if (error.response?.status === 403) {
+        throw new Error('Permission denied. You may not have rights to delete this sub-activity.');
+      } else if (error.response?.data?.detail) {
+        throw new Error(error.response.data.detail);
+      } else if (error.response?.data?.message) {
+        throw new Error(error.response.data.message);
+      }
+      
+      throw new Error(error.message || 'Failed to delete sub-activity');
     }
   },
   getByMainActivity: (mainActivityId: string) => api.get('/sub-activities/', { params: { main_activity: mainActivityId } }),

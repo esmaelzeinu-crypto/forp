@@ -587,8 +587,6 @@ class MainActivity(models.Model):
         """Custom delete method to handle sub-activities and related objects properly"""
         # Delete all sub-activities first (which will cascade to their budgets)
         try:
-            sub_activities = self.sub_activities.all()
-            for sub_activity in sub_activities:
                 sub_activity.delete()
         except Exception as e:
             print(f"Warning: Could not delete sub-activities for main activity {self.id}: {e}")
