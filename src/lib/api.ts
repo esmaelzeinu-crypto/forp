@@ -1423,7 +1423,17 @@ export const subActivities = {
   getById: (id: string) => api.get(`/sub-activities/${id}/`),
   create: (data: any) => api.post('/sub-activities/', data),
   update: (id: string, data: any) => api.put(`/sub-activities/${id}/`, data),
-  delete: (id: string) => api.delete(`/sub-activities/${id}/`),
+  delete: async (id: string) => {
+    try {
+      console.log(`API: Deleting sub-activity ${id}`);
+      const response = await api.delete(`/sub-activities/${id}/`);
+      console.log(`API: Sub-activity ${id} deleted successfully`);
+      return response;
+    } catch (error) {
+      console.error(`API: Error deleting sub-activity ${id}:`, error);
+      throw error;
+    }
+  },
   getByMainActivity: (mainActivityId: string) => api.get('/sub-activities/', { params: { main_activity: mainActivityId } }),
   addBudget: (id: string, data: any) => api.post(`/sub-activities/${id}/add-budget/`, data),
   updateBudget: (id: string, data: any) => api.put(`/sub-activities/${id}/update-budget/`, data),
