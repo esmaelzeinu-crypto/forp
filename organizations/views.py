@@ -991,20 +991,6 @@ class MainActivityViewSet(viewsets.ModelViewSet):
     serializer_class = MainActivitySerializer
     permission_classes = [IsAuthenticated]
     
-    def destroy(self, request, *args, **kwargs):
-        """Custom delete method with proper constraint handling"""
-        try:
-            instance = self.get_object()
-            
-            # Log the deletion attempt
-            print(f"Attempting to delete main activity: {instance.id} ({instance.name})")
-            
-            with transaction.atomic():
-                # Get all sub-activities for this main activity
-                sub_activities = instance.sub_activities.all()
-                print(f"Found {sub_activities.count()} sub-activities to delete")
-                
-                # Delete all sub-activities (which will cascade to their budgets)
     @transaction.atomic
     def destroy(self, request, *args, **kwargs):
         """
@@ -1033,37 +1019,55 @@ class MainActivityViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
-                for sub_activity in sub_activities:
-                    try:
-                        print(f"Deleting sub-activity: {sub_activity.id} ({sub_activity.name})")
-                        sub_activity.delete()
-                    except Exception as sub_error:
-                        print(f"Error deleting sub-activity {sub_activity.id}: {sub_error}")
-                        raise Exception(f"Failed to delete sub-activity '{sub_activity.name}': {str(sub_error)}")
+    def destroy(self, request, *args, **kwargs):
+        """Custom delete with proper cascade handling"""
+        try:
+            instance = self.get_object()
+            activity_name = instance.name
+            activity_id = instance.id
+            
+            # Log the deletion attempt
+            print(f"Attempting to delete MainActivity {activity_id} ({activity_name})")
+            
+            with transaction.atomic():
+                # Step 1: Delete all ActivityBudget objects related to sub-activities
+                sub_activity_ids = list(instance.sub_activities.values_list('id', flat=True))
+                if sub_activity_ids:
+                    deleted_budgets = ActivityBudget.objects.filter(sub_activity__in=sub_activity_ids).delete()
+                    print(f"Deleted {deleted_budgets[0]} sub-activity budgets")
                 
-                # Delete any legacy budget records
-                try:
-                    legacy_budgets = instance.legacy_budgets.all()
-                    for budget in legacy_budgets:
-                        print(f"Deleting legacy budget: {budget.id}")
-                        budget.delete()
-                except Exception as budget_error:
-                    print(f"Legacy budget deletion warning: {budget_error}")
+                # Step 2: Delete all legacy ActivityBudget objects for this main activity
+                legacy_budget_count = ActivityBudget.objects.filter(activity=instance).delete()
+                print(f"Deleted {legacy_budget_count[0]} legacy budgets")
                 
-                # Delete the main activity
+                # Step 3: Delete all sub-activities (should be clean now)
+                sub_activity_count = instance.sub_activities.all().delete()
+                print(f"Deleted {sub_activity_count[0]} sub-activities")
+                
+                # Step 4: Finally delete the main activity
                 instance.delete()
-                print(f"Main activity {instance.id} deleted successfully")
+                print(f"Successfully deleted MainActivity {activity_id} ({activity_name})")
             
             return Response(
-                {'message': 'Main activity and all related data deleted successfully'}, 
-                status=status.HTTP_204_NO_CONTENT
+                {'message': f'Main activity "{activity_name}" deleted successfully'},
+                status=status.HTTP_200_OK
             )
             
         except Exception as e:
-            print(f"Error deleting main activity {kwargs.get('pk')}: {str(e)}")
+            print(f"Error deleting MainActivity {kwargs.get('pk')}: {str(e)}")
+            print(f"Error type: {type(e).__name__}")
+            
+            # Log more details for production debugging
+            if hasattr(e, 'args') and e.args:
+                print(f"Error args: {e.args}")
+            
             return Response(
-                {'error': f'Failed to delete main activity: {str(e)}'}, 
-                status=status.HTTP_400_BAD_REQUEST
+                {
+                    'error': 'Failed to delete main activity',
+                    'detail': str(e),
+                    'message': 'Unable to delete main activity due to database constraints. Please contact support.'
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
     def get_queryset(self):
@@ -1228,11 +1232,6 @@ class SubActivityViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(main_activity=main_activity)
         return queryset
 
-    @action(detail=True, methods=['post'])
-    def add_budget(self, request, pk=None):
-        """Add budget for a sub-activity"""
-        try:
-            sub_activity = self.get_object()
     @transaction.atomic
     def destroy(self, request, *args, **kwargs):
         """
@@ -1261,6 +1260,11 @@ class SubActivityViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+    @action(detail=True, methods=['post'])
+    def add_budget(self, request, pk=None):
+        """Add budget for a sub-activity"""
+        try:
+            sub_activity = self.get_object()
             budget_data = request.data
 
             # Create budget for this sub-activity
