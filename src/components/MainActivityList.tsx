@@ -1,9 +1,10 @@
+
 import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { mainActivities, auth, api, subActivities } from '../lib/api';
-import { BarChart3, AlertCircle, CheckCircle, Edit, Trash2, Lock, PlusCircle, Info, Loader, DollarSign, Plus, Eye, X, Calculator, Activity, Building2 } from 'lucide-react';
+import { mainActivities, auth, subActivities } from '../lib/api';
+import { Activity, AlertCircle, CheckCircle, Edit, Trash2, Lock, PlusCircle, DollarSign, Building2, Info, Loader, Eye, X, Calculator } from 'lucide-react';
 import { useLanguage } from '../lib/i18n/LanguageContext';
-import type { MainActivity } from '../types/plan';
+import type { MainActivity } from '../types/organization';
 import { isPlanner } from '../types/user';
 import ActivityBudgetForm from './ActivityBudgetForm';
 import TrainingCostingTool from './TrainingCostingTool';
@@ -12,31 +13,14 @@ import PrintingCostingTool from './PrintingCostingTool';
 import ProcurementCostingTool from './ProcurementCostingTool';
 import SupervisionCostingTool from './SupervisionCostingTool';
 
-interface SubActivity {
-  id: string;
-  name: string;
-  description?: string;
-  activity_type: string;
-  budget_calculation_type: 'WITH_TOOL' | 'WITHOUT_TOOL';
-  estimated_cost_with_tool?: number;
-  estimated_cost_without_tool?: number;
-  government_treasury?: number;
-  sdg_funding?: number;
-  partners_funding?: number;
-  other_funding?: number;
-}
-
 interface MainActivityListProps {
   initiativeId: string;
   initiativeWeight: number;
   onEditActivity: (activity: MainActivity) => void;
   onSelectActivity?: (activity: MainActivity) => void;
-  onAddSubActivity?: (activity: MainActivity) => void;
-  onViewActivityBudget?: (activity: MainActivity) => void;
-  onEditSubActivityBudget?: (subActivity: SubActivity) => void;
-  onViewSubActivity?: (subActivity: SubActivity) => void;
   isNewPlan?: boolean;
   planKey?: string;
+  refreshKey?: number;
 }
 
 const ACTIVITY_TYPES = [
@@ -61,22 +45,17 @@ const MainActivityList: React.FC<MainActivityListProps> = ({
   initiativeWeight,
   onEditActivity,
   onSelectActivity,
-  onAddSubActivity,
-  onViewActivityBudget,
-  onEditSubActivityBudget,
-  onViewSubActivity,
   isNewPlan = false,
   planKey = 'default',
+  refreshKey = 0
 }) => {
   const { t } = useLanguage();
   const queryClient = useQueryClient();
   const [isUserPlanner, setIsUserPlanner] = useState(false);
-  const [userOrgId, setUserOrgId] = useState<number | null>(null);
+  const [userOrgId, setUserOrgId] = useState<string | null>(null);
   const [validationSuccess, setValidationSuccess] = useState<string | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [isLoadingWeights, setIsLoadingWeights] = useState(true);
-  
+
   // Modal states
   const [selectedActivity, setSelectedActivity] = useState<MainActivity | null>(null);
   const [showActivityTypeModal, setShowActivityTypeModal] = useState(false);
@@ -87,338 +66,277 @@ const MainActivityList: React.FC<MainActivityListProps> = ({
   const [selectedSubActivity, setSelectedSubActivity] = useState<any>(null);
   const [costingToolData, setCostingToolData] = useState<any>(null);
 
-  // Fetch user permissions
+  // Get user data on mount
   useEffect(() => {
     const fetchUserData = async () => {
       try {
         const authData = await auth.getCurrentUser();
-        const plannerStatus = isPlanner(authData.userOrganizations);
-        setIsUserPlanner(plannerStatus);
-        if (authData.userOrganizations?.length > 0) {
-          setUserOrgId(authData.userOrganizations[0].organization);
-        } else {
-          console.warn('No user organizations found');
-          setActionError('No organization data available.');
-          setTimeout(() => setActionError(null), 5000);
+        setIsUserPlanner(isPlanner(authData.userOrganizations));
+
+        if (authData.userOrganizations && authData.userOrganizations.length > 0) {
+          const orgId = normalizeId(authData.userOrganizations[0].organization);
+          setUserOrgId(orgId);
+          console.log('MainActivityList: Normalized user org ID:', orgId);
         }
       } catch (error) {
         console.error('Failed to fetch user data:', error);
-        setActionError('Failed to load user permissions.');
-        setTimeout(() => setActionError(null), 5000);
-      } finally {
-        setIsLoadingWeights(false);
       }
     };
+
     fetchUserData();
   }, []);
 
-  // Fetch main activities
-  const { data: activitiesList, isLoading, refetch } = useQuery({
-    queryKey: ['main-activities', initiativeId, planKey],
+  // Refetch when userOrgId changes
+  useEffect(() => {
+    if (userOrgId !== null) {
+      console.log('User org ID changed, refetching activities');
+      refetch();
+    }
+  }, [userOrgId]);
+
+  // Fetch main activities with robust error handling
+  const { data: activitiesList, isLoading, error, refetch } = useQuery({
+    queryKey: ['main-activities', initiativeId, userOrgId, refreshKey],
     queryFn: async () => {
       if (!initiativeId) {
-        console.warn('Missing initiativeId');
+        console.log('MainActivityList: No initiativeId provided');
         return { data: [] };
       }
-      console.log(`Fetching main activities for initiative ${initiativeId}`);
-      try {
-        const response = await api.get(`/main-activities/?initiative=${initiativeId}`);
-        const activities = response.data?.results || response.data || [];
-        console.log(`Fetched ${activities.length} activities`, activities);
-        return { data: activities };
-      } catch (error) {
-        console.error('Error fetching activities:', error);
-        setActionError('Failed to load activities.');
-        setTimeout(() => setActionError(null), 5000);
-        return { data: [] };
-      }
-    },
-    enabled: !!initiativeId && !!userOrgId,
-    staleTime: 0,
-    cacheTime: 0,
-  });
 
-  // Delete main activity mutation
-  const deleteActivityMutation = useMutation({
-    mutationFn: async (activityId: string) => {
-      console.log(`Deleting main activity: ${activityId}`);
+      console.log(`MainActivityList: Fetching activities for initiative ${initiativeId}, userOrg: ${userOrgId}`);
       try {
-        // Ensure fresh authentication and CSRF token
-        await auth.getCurrentUser();
-        
-        // Get fresh CSRF token with retry
-        try {
-          await api.get('/auth/csrf/');
-        } catch (csrfError) {
-          console.warn('CSRF token refresh failed, continuing anyway:', csrfError);
+        const response = await mainActivities.getByInitiative(initiativeId);
+        if (!response || !response.data) {
+          console.log('MainActivityList: No data in response');
+          return { data: [] };
         }
-        
-        // Validate the ID format
-        const normalizedId = normalizeId(activityId);
-        if (!normalizedId) {
-          throw new Error('Invalid main activity ID format');
-        }
-        
-        // Ensure the endpoint URL is properly formatted
-        const endpoint = `/main-activities/${normalizedId}/`;
-        console.log(`Making DELETE request to: ${endpoint}`);
-        
-        // Add retry logic for production
-        let response;
-        let retryCount = 0;
-        const maxRetries = 2;
-        
-        while (retryCount <= maxRetries) {
-          try {
-            response = await api.delete(endpoint, {
-              timeout: 15000, // 15 second timeout for main activities (may have more dependencies)
-              headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-              }
-            });
-            break; // Success, exit retry loop
-          } catch (retryError) {
-            retryCount++;
-            console.error(`Delete attempt ${retryCount} failed:`, retryError);
-            
-            if (retryCount > maxRetries) {
-              throw retryError; // Final attempt failed
-            }
-            
-            // Wait before retry (exponential backoff)
-            await new Promise(resolve => setTimeout(resolve, 1500 * retryCount));
-            
-            // Refresh auth before retry
-            try {
-              await auth.getCurrentUser();
-            } catch (authError) {
-              console.warn('Auth refresh failed during retry:', authError);
-            }
-          }
-        }
-        
-        console.log('Main activity deleted successfully:', response);
+
+        const activities = Array.isArray(response.data) ? response.data : [];
+        console.log(`MainActivityList: Successfully fetched ${activities.length} activities from API`);
+
         return response;
       } catch (error) {
-        console.error('Error deleting main activity:', error);
-        console.error('Error details:', {
-          status: error.response?.status,
-          statusText: error.response?.statusText,
-          data: error.response?.data,
-          url: error.config?.url,
-          method: error.config?.method
-        });
-        
-        // Provide specific error messages based on response
-        if (error.response?.status === 500) {
-          throw new Error('Server error occurred. The main activity may have sub-activities or other dependencies preventing deletion. Please delete all sub-activities first or contact support.');
-        } else if (error.response?.status === 403) {
-          throw new Error('Permission denied. You may not have rights to delete this activity.');
-        } else if (error.response?.status === 404) {
-          throw new Error('Activity not found. It may have already been deleted.');
-        } else if (error.response?.status === 400) {
-          const errorMsg = error.response?.data?.detail || error.response?.data?.message || 'Bad request';
-          throw new Error(`Cannot delete main activity: ${errorMsg}. You may need to delete all sub-activities first.`);
-        } else if (error.response?.status === 401) {
-          throw new Error('Authentication required. Please refresh the page and try again.');
-        } else if (error.code === 'ECONNABORTED') {
-          throw new Error('Request timeout. Please check your connection and try again.');
-        } else if (!error.response) {
-          throw new Error('Network error. Please check your connection and try again.');
-        }
-        
-        // Fallback error message
-        throw new Error(`Failed to delete main activity: ${error.message || 'Unknown error'}`);
+        console.error('MainActivityList: API Error:', error);
+        throw error;
       }
     },
-    onSuccess: () => {
-      console.log('Main activity deletion successful, refreshing data...');
-      queryClient.invalidateQueries({ queryKey: ['main-activities', initiativeId] });
-      queryClient.invalidateQueries({ queryKey: ['initiatives'] });
-      queryClient.invalidateQueries({ queryKey: ['objectives'] });
-      setValidationSuccess('Main activity deleted successfully');
-      setTimeout(() => setValidationSuccess(null), 3000);
-      refetch();
-    },
-    onError: (error: any) => {
-      console.error('Failed to delete main activity:', error);
-      setActionError(error.message || 'Failed to delete main activity. Please try again.');
-      setTimeout(() => setActionError(null), 5000);
-    }
+    enabled: !!initiativeId,
+    staleTime: 30000,
+    refetchOnWindowFocus: false,
+    retry: 1,
+    refetchInterval: false,
+    refetchOnReconnect: true
   });
 
-  // Enhanced delete sub-activity mutation with production-friendly error handling
-  const deleteSubActivityMutation = useMutation({
-    mutationFn: async (subActivityId: string) => {
-      console.log(`Deleting sub-activity: ${subActivityId}`);
-      try {
-        // Ensure fresh authentication and CSRF token
-        await auth.getCurrentUser();
-        
-        // Get fresh CSRF token with retry
-        try {
-          await api.get('/auth/csrf/');
-        } catch (csrfError) {
-          console.warn('CSRF token refresh failed, continuing anyway:', csrfError);
-        }
-        
-        // Validate the ID format
-        const normalizedId = normalizeId(subActivityId);
-        if (!normalizedId) {
-          throw new Error('Invalid sub-activity ID format');
-        }
-        
-        // Ensure the endpoint URL is properly formatted
-        const endpoint = `/sub-activities/${normalizedId}/`;
-        console.log(`Making DELETE request to: ${endpoint}`);
-        
-        // Add retry logic for production
-        let response;
-        let retryCount = 0;
-        const maxRetries = 2;
-        
-        while (retryCount <= maxRetries) {
-          try {
-            response = await api.delete(endpoint, {
-              timeout: 10000, // 10 second timeout
-              headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-              }
-            });
-            break; // Success, exit retry loop
-          } catch (retryError) {
-            retryCount++;
-            console.error(`Delete attempt ${retryCount} failed:`, retryError);
-            
-            if (retryCount > maxRetries) {
-              throw retryError; // Final attempt failed
-            }
-            
-            // Wait before retry (exponential backoff)
-            await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
-            
-            // Refresh auth before retry
-            try {
-              await auth.getCurrentUser();
-            } catch (authError) {
-              console.warn('Auth refresh failed during retry:', authError);
-            }
-          }
-        }
-        
-        console.log('Sub-activity deleted successfully:', response);
-        return response;
-      } catch (error) {
-        console.error('Error deleting sub-activity:', error);
-        console.error('Error details:', {
-          status: error.response?.status,
-          statusText: error.response?.statusText,
-          data: error.response?.data,
-          url: error.config?.url,
-          method: error.config?.method
-        });
-        
-        // Provide specific error messages based on response
-        if (error.response?.status === 500) {
-          throw new Error('Server error occurred. The sub-activity may have dependencies or constraints preventing deletion. Please contact support if this persists.');
-        } else if (error.response?.status === 403) {
-          throw new Error('Permission denied. You may not have rights to delete this sub-activity.');
-        } else if (error.response?.status === 404) {
-          throw new Error('Sub-activity not found. It may have already been deleted.');
-        } else if (error.response?.status === 400) {
-          const errorMsg = error.response?.data?.detail || error.response?.data?.message || 'Bad request';
-          throw new Error(`Cannot delete sub-activity: ${errorMsg}`);
-        } else if (error.response?.status === 401) {
-          throw new Error('Authentication required. Please refresh the page and try again.');
-        } else if (error.code === 'ECONNABORTED') {
-          throw new Error('Request timeout. Please check your connection and try again.');
-        } else if (!error.response) {
-          throw new Error('Network error. Please check your connection and try again.');
-        }
-        
-        // Fallback error message
-        throw new Error(`Failed to delete sub-activity: ${error.message || 'Unknown error'}`);
-      }
-    },
-    onSuccess: () => {
-      console.log('Sub-activity deletion successful, refreshing data...');
-      queryClient.invalidateQueries({ queryKey: ['main-activities', initiativeId] });
-      queryClient.invalidateQueries({ queryKey: ['sub-activities'] });
-      queryClient.invalidateQueries({ queryKey: ['initiatives'] });
-      setValidationSuccess('Sub-activity deleted successfully');
-      setTimeout(() => setValidationSuccess(null), 3000);
-      refetch();
-    },
-    onError: (error: any) => {
-      console.error('Failed to delete sub-activity:', error);
-      setActionError(error.message || 'Failed to delete sub-activity. Please try again.');
-      setTimeout(() => setActionError(null), 5000);
-    }
-  });
-
-  // Create sub-activity mutation
+  // Create sub-activity mutation with immediate cache update
   const createSubActivityMutation = useMutation({
     mutationFn: async (subActivityData: any) => {
-      console.log('Creating sub-activity:', subActivityData);
-      return await api.post('/sub-activities/', subActivityData);
+      console.log('Creating sub-activity with data:', subActivityData);
+      try {
+        // Ensure we have all required fields
+        if (!subActivityData.main_activity) {
+          throw new Error('Main activity ID is required');
+        }
+        if (!subActivityData.name || !subActivityData.name.trim()) {
+          throw new Error('Sub-activity name is required');
+        }
+        if (!subActivityData.activity_type) {
+          throw new Error('Activity type is required');
+        }
+        
+        const response = await subActivities.create(subActivityData);
+        console.log('Sub-activity create response:', response);
+        return response;
+      } catch (error) {
+        console.error('Sub-activity create error:', error);
+        throw error;
+      }
     },
-    onError: (err: any) => {
-      console.error('Failed to create sub-activity:', err);
-      setActionError(err.response?.data?.detail || 'Failed to create sub-activity.');
-      setTimeout(() => setActionError(null), 5000);
+    onSuccess: (result, variables) => {
+      console.log('Sub-activity created successfully:', result);
+
+      // Invalidate cache to force refresh
+      const queryKey = ['main-activities', initiativeId, userOrgId, refreshKey];
+      queryClient.invalidateQueries({ queryKey });
+      
+      // Force refresh after creation
+      setTimeout(() => {
+        refetch();
+      }, 300);
+
+      closeAllModals();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['main-activities', initiativeId] });
-      refetch();
+    onError: (error) => {
+      console.error('Failed to create sub-activity:', error);
+      // Don't close modals on error so user can retry
       closeAllModals();
     }
   });
 
-  // Update sub-activity mutation
+  // Update sub-activity mutation with immediate cache update
   const updateSubActivityMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: any }) => {
-      console.log(`Updating sub-activity: ${id}`);
-      return await api.put(`/sub-activities/${id}/`, data);
+      console.log('Updating sub-activity:', id, 'with data:', data);
+      try {
+        // Ensure we have all required fields
+        if (!data.main_activity) {
+          throw new Error('Main activity ID is required');
+        }
+        if (!data.name || !data.name.trim()) {
+          throw new Error('Sub-activity name is required');
+        }
+        if (!data.activity_type) {
+          throw new Error('Activity type is required');
+        }
+        
+        const response = await subActivities.update(id, data);
+        console.log('Sub-activity update response:', response);
+        return response;
+      } catch (error) {
+        console.error('Sub-activity update error:', error);
+        throw error;
+      }
     },
-    onError: (err: any) => {
-      console.error('Failed to update sub-activity:', err);
-      setActionError(err.response?.data?.detail || 'Failed to update sub-activity.');
-      setTimeout(() => setActionError(null), 5000);
+    onSuccess: (result, variables) => {
+      console.log('Sub-activity updated successfully:', result);
+
+      // Invalidate cache to force refresh
+      const queryKey = ['main-activities', initiativeId, userOrgId, refreshKey];
+      queryClient.invalidateQueries({ queryKey });
+      
+      // Force refresh after update
+      setTimeout(() => {
+        refetch();
+      }, 300);
+
+      closeAllModals();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['main-activities', initiativeId] });
-      refetch();
+    onError: (error) => {
+      console.error('Failed to update sub-activity:', error);
+      // Don't close modals on error so user can retry
       closeAllModals();
     }
   });
 
-  // Filter activities by organization
-  const filteredActivities = React.useMemo(() => {
-    if (!activitiesList?.data || !userOrgId) return [];
-    const activities = activitiesList.data.filter((activity: any) => {
-      const shouldInclude = !activity.organization || Number(activity.organization) === Number(userOrgId);
-      return shouldInclude;
-    });
-    return activities;
-  }, [activitiesList?.data, userOrgId]);
+  // Delete sub-activity mutation with immediate cache update
+  const deleteSubActivityMutation = useMutation({
+    mutationFn: async (subActivityId: string) => {
+      console.log('Deleting sub-activity:', subActivityId);
+      try {
+        const response = await subActivities.delete(subActivityId);
+        console.log('Sub-activity delete response:', response);
+        return response;
+      } catch (error) {
+        console.error('Sub-activity delete error:', error);
+        throw error;
+      }
+    },
+    onSuccess: (result, subActivityId) => {
+      console.log('Sub-activity deleted successfully:', subActivityId);
 
-  // Calculate weights
-  const { totalActivitiesWeight, maxAllowedWeight, remainingWeight, isWeightValid } = React.useMemo(() => {
-    try {
-      const totalWeight = filteredActivities.reduce((sum: number, activity: any) => sum + (Number(activity.weight) || 0), 0);
-      const maxAllowed = Number(initiativeWeight) * 0.65;
-      const remaining = maxAllowed - totalWeight;
-      const isValid = totalWeight <= maxAllowed;
-      return { totalActivitiesWeight: totalWeight, maxAllowedWeight: maxAllowed, remainingWeight: remaining, isWeightValid: isValid };
-    } catch (error) {
-      console.error('Error calculating weights:', error);
-      setActionError('Failed to calculate weights.');
-      setTimeout(() => setActionError(null), 5000);
-      return { totalActivitiesWeight: 0, maxAllowedWeight: 0, remainingWeight: 0, isWeightValid: true };
+      // Optimistic removal from cache
+      const queryKey = ['main-activities', initiativeId, userOrgId, refreshKey];
+      queryClient.invalidateQueries({ queryKey });
+      
+      // Also update cache optimistically
+      const currentData = queryClient.getQueryData(queryKey);
+
+      if (currentData?.data && Array.isArray(currentData.data)) {
+        const updatedActivities = currentData.data.map(activity => {
+          if (activity.sub_activities && Array.isArray(activity.sub_activities)) {
+            return {
+              ...activity,
+              sub_activities: activity.sub_activities.filter(sub =>
+                normalizeId(sub.id) !== normalizeId(subActivityId)
+              )
+            };
+          }
+          return activity;
+        });
+
+        queryClient.setQueryData(queryKey, {
+          ...currentData,
+          data: updatedActivities
+        });
+      }
+      
+      // Force refresh after a short delay to ensure consistency
+      setTimeout(() => {
+        refetch();
+      }, 500);
+    },
+    onError: (error) => {
+      console.error('Failed to delete sub-activity:', error);
+      // Refetch to restore correct state
+      refetch();
     }
-  }, [filteredActivities, initiativeWeight]);
+  });
+  
+  // Delete main activity mutation with proper error handling
+  const deleteActivityMutation = useMutation({
+    mutationFn: async (activityId: string) => {
+      console.log('Deleting main activity:', activityId);
+      try {
+        const response = await mainActivities.delete(activityId);
+        console.log('Main activity delete response:', response);
+        return response;
+      } catch (error) {
+        console.error('Main activity delete error:', error);
+        throw error;
+      }
+    },
+    onSuccess: (result, activityId) => {
+      console.log('Main activity deleted successfully:', activityId);
+
+      // Invalidate and refresh cache
+      const queryKey = ['main-activities', initiativeId, userOrgId, refreshKey];
+      queryClient.invalidateQueries({ queryKey });
+      
+      // Also invalidate related queries
+      queryClient.invalidateQueries({ queryKey: ['initiatives'] });
+      queryClient.invalidateQueries({ queryKey: ['objectives'] });
+      
+      // Force refresh after deletion
+      setTimeout(() => {
+        refetch();
+      }, 500);
+    },
+    onError: (error) => {
+      console.error('Failed to delete activity:', error);
+      // Refetch to restore correct state
+      refetch();
+    }
+  });
+
+  // Manual refresh function
+  const handleManualRefresh = () => {
+    console.log('MainActivityList: Manual refresh triggered');
+    refetch();
+  };
+
+  // Comprehensive data validation and logging
+  const activitiesData = activitiesList?.data || [];
+  const safeActivitiesData = Array.isArray(activitiesData) ? activitiesData : [];
+  console.log('MainActivityList: Processing', safeActivitiesData.length, 'total activities');
+
+  // Fixed filtering logic with normalized IDs
+  const displayActivities = safeActivitiesData.filter(activity => {
+    if (!activity) return false;
+
+    const activityOrg = normalizeId(activity.organization);
+    const userOrg = normalizeId(userOrgId);
+
+    // Always include activities with no organization
+    if (!activityOrg) return true;
+
+    // Include if organizations match
+    if (activityOrg && userOrg && activityOrg === userOrg) return true;
+
+    // Include default activities
+    return activity.is_default === true;
+  });
+
+  console.log(`MainActivityList: FINAL DISPLAY - showing ${displayActivities.length} of ${safeActivitiesData.length} activities`);
 
   // Close all modals
   const closeAllModals = () => {
@@ -433,8 +351,8 @@ const MainActivityList: React.FC<MainActivityListProps> = ({
   };
 
   // Handle add sub-activity click
-  const handleAddSubActivity = (activity: MainActivity, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleAddSubActivity = (activity: MainActivity) => {
+    console.log('Adding sub-activity to:', activity.name);
     setSelectedActivity(activity);
     setSelectedSubActivity(null);
     setShowActivityTypeModal(true);
@@ -442,11 +360,12 @@ const MainActivityList: React.FC<MainActivityListProps> = ({
 
   // Handle activity type selection
   const handleActivityTypeSelect = (activityType: string) => {
+    console.log('Activity type selected:', activityType);
     setSelectedActivityType(activityType);
     setShowActivityTypeModal(false);
 
     if (activityType === 'Other') {
-      setCostingToolData(null);
+     setCostingToolData(null); // No costing tool for "Other" activities
       setShowBudgetModal(true);
     } else {
       setShowCostingModal(true);
@@ -455,6 +374,7 @@ const MainActivityList: React.FC<MainActivityListProps> = ({
 
   // Handle costing calculation
   const handleCostingCalculation = (costingData: any) => {
+    console.log('Costing calculation completed:', costingData);
     setCostingToolData({
       ...costingData,
       activity_type: selectedActivityType
@@ -465,19 +385,35 @@ const MainActivityList: React.FC<MainActivityListProps> = ({
 
   // Handle budget form submission
   const handleBudgetSubmit = async (budgetData: any) => {
+    console.log('handleBudgetSubmit called with:', budgetData);
+    
     try {
+      // Validate required data
+      if (!selectedActivity?.id) {
+        throw new Error('No activity selected');
+      }
+      
+      if (!budgetData.name || !budgetData.name.trim()) {
+        throw new Error('Sub-activity name is required');
+      }
+      
+      if (!selectedActivityType) {
+        throw new Error('Activity type is required');
+      }
+      
+      // Prepare sub-activity data with proper validation
       const subActivityData = {
         main_activity: selectedActivity?.id,
-        name: budgetData.name || `${selectedActivityType} Activity`,
+        name: budgetData.name?.trim() || `${selectedActivityType} Activity`,
         activity_type: selectedActivityType,
         description: budgetData.description || '',
         budget_calculation_type: costingToolData ? 'WITH_TOOL' : 'WITHOUT_TOOL',
-        estimated_cost_with_tool: costingToolData?.totalBudget || 0,
-        estimated_cost_without_tool: budgetData.estimated_cost_without_tool || 0,
-        government_treasury: budgetData.government_treasury || 0,
-        sdg_funding: budgetData.sdg_funding || 0,
-        partners_funding: budgetData.partners_funding || 0,
-        other_funding: budgetData.other_funding || 0,
+        estimated_cost_with_tool: Number(costingToolData?.totalBudget || 0),
+        estimated_cost_without_tool: Number(budgetData.estimated_cost_without_tool || 0),
+        government_treasury: Number(budgetData.government_treasury || 0),
+        sdg_funding: Number(budgetData.sdg_funding || 0),
+        partners_funding: Number(budgetData.partners_funding || 0),
+        other_funding: Number(budgetData.other_funding || 0),
         training_details: costingToolData?.training_details || budgetData.training_details,
         meeting_workshop_details: costingToolData?.meeting_workshop_details || budgetData.meeting_workshop_details,
         procurement_details: costingToolData?.procurement_details || budgetData.procurement_details,
@@ -485,17 +421,33 @@ const MainActivityList: React.FC<MainActivityListProps> = ({
         supervision_details: costingToolData?.supervision_details || budgetData.supervision_details,
         partners_details: budgetData.partners_details
       };
+      
+      console.log('Prepared sub-activity data:', subActivityData);
+      
+      // Validate estimated cost
+      const effectiveEstimatedCost = subActivityData.budget_calculation_type === 'WITH_TOOL'
+        ? subActivityData.estimated_cost_with_tool
+        : subActivityData.estimated_cost_without_tool;
+        
+      if (effectiveEstimatedCost <= 0) {
+        throw new Error('Estimated cost must be greater than 0');
+      }
 
       if (selectedSubActivity) {
+        console.log('Updating existing sub-activity:', selectedSubActivity.id);
         await updateSubActivityMutation.mutateAsync({
           id: selectedSubActivity.id,
           data: subActivityData
         });
       } else {
+        console.log('Creating new sub-activity');
         await createSubActivityMutation.mutateAsync(subActivityData);
       }
     } catch (error) {
       console.error('Error saving sub-activity:', error);
+      // Show user-friendly error message
+      const errorMessage = error.message || 'Failed to save sub-activity. Please try again.';
+      alert(errorMessage);
       throw error;
     }
   };
@@ -530,68 +482,59 @@ const MainActivityList: React.FC<MainActivityListProps> = ({
     }
   };
 
-  // Handle sub-activity deletion with confirmation
-  const handleDeleteSubActivity = (subActivityId: string, subActivityName: string, e: React.MouseEvent) => {
+  // Handle sub-activity deletion
+  const handleDeleteSubActivity = async (subActivityId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    e.preventDefault();
-
-    // Validate inputs
-    if (!subActivityId || !subActivityName) {
-      setActionError('Invalid sub-activity data. Cannot delete.');
-      setTimeout(() => setActionError(null), 5000);
-      return;
-    }
-
-    // Clear any previous messages
-    setValidationSuccess(null);
-    setActionError(null);
-
-    const confirmMessage = `Are you sure you want to delete the sub-activity "${subActivityName}"?\n\nThis action cannot be undone and will permanently remove:\n- The sub-activity\n- All associated budget data\n- Any costing tool calculations`;
     
-    if (window.confirm(confirmMessage)) {
-      console.log(`User confirmed deletion of sub-activity: ${subActivityId} (${subActivityName})`);
-      deleteSubActivityMutation.mutate(subActivityId);
-    } else {
-      console.log('User cancelled sub-activity deletion');
+    try {
+      const confirmed = window.confirm('Are you sure you want to delete this sub-activity? This action cannot be undone.');
+      if (!confirmed) return;
+      
+      console.log('User confirmed deletion of sub-activity:', subActivityId);
+      await deleteSubActivityMutation.mutateAsync(subActivityId);
+    } catch (error) {
+      console.error('Error in handleDeleteSubActivity:', error);
+      alert('Failed to delete sub-activity. Please try again.');
     }
   };
-
-  // Handle activity deletion
-  const handleDeleteActivity = (activityId: string, activityName: string, e: React.MouseEvent) => {
+  // Handle main activity deletion
+  const handleDeleteActivity = async (activityId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    e.preventDefault();
-    
-    // Validate inputs
-    if (!activityId || !activityName) {
-      setActionError('Invalid activity data. Cannot delete.');
-      setTimeout(() => setActionError(null), 5000);
-      return;
-    }
 
-    // Clear any previous messages
-    setValidationSuccess(null);
-    setActionError(null);
-    
-    const confirmMessage = `Are you sure you want to delete "${activityName}" and ALL its sub-activities?\n\nThis action cannot be undone and will permanently remove:\n- The main activity\n- All sub-activities under it\n- All associated budget data\n- Any costing tool calculations`;
-    
-    if (window.confirm(confirmMessage)) {
-      console.log(`Confirming deletion of main activity: ${activityId}`);
-      deleteActivityMutation.mutate(activityId);
-    } else {
-      console.log('User cancelled main activity deletion');
+    try {
+      const confirmed = window.confirm('Are you sure you want to delete this activity? This will also delete all sub-activities. This action cannot be undone.');
+      if (!confirmed) return;
+      
+      console.log('User confirmed deletion of main activity:', activityId);
+      await deleteActivityMutation.mutateAsync(activityId);
+    } catch (error) {
+      console.error('Error in handleDeleteActivity:', error);
+      alert('Failed to delete main activity. Please try again.');
     }
   };
 
   // Handle activity validation
   const handleValidateActivities = () => {
+    setValidationSuccess(null);
+    setValidationError(null);
+
     if (isWeightValid) {
-      setValidationSuccess(`Weights valid (${totalActivitiesWeight.toFixed(1)}% ≤ ${maxAllowedWeight.toFixed(1)}%)`);
+      setValidationSuccess(`Activity weights are valid (${totalActivitiesWeight.toFixed(2)}% ≤ ${maxAllowedWeight}%)`);
       setTimeout(() => setValidationSuccess(null), 3000);
     } else {
-      setValidationError(`Weights exceed limit (${totalActivitiesWeight.toFixed(1)}% > ${maxAllowedWeight.toFixed(1)}%)`);
+      setValidationError(`Activity weights (${totalActivitiesWeight.toFixed(2)}%) exceed maximum allowed (${maxAllowedWeight}%)`);
       setTimeout(() => setValidationError(null), 5000);
     }
   };
+
+  // Calculate weight totals
+  const totalActivitiesWeight = displayActivities.reduce((sum, activity) =>
+    sum + (Number(activity.weight) || 0), 0
+  );
+
+  const maxAllowedWeight = parseFloat((initiativeWeight * 0.65).toFixed(2));
+  const remainingWeight = parseFloat((maxAllowedWeight - totalActivitiesWeight).toFixed(2));
+  const isWeightValid = totalActivitiesWeight <= maxAllowedWeight;
 
   // Render costing tool based on activity type
   const renderCostingTool = () => {
@@ -618,37 +561,58 @@ const MainActivityList: React.FC<MainActivityListProps> = ({
     }
   };
 
-  if (isLoading || isLoadingWeights) {
+  // Loading state
+  if (isLoading) {
     return (
-      <div className="text-center p-4">
-        <Loader className="h-6 w-6 animate-spin mx-auto mb-2" />
-        {t('common.loading')}
+      <div className="flex items-center justify-center p-4">
+        <Loader className="h-5 w-5 animate-spin mr-2" />
+        <span>{t('common.loading')}</span>
       </div>
     );
   }
 
-  if (actionError) {
+  // Error state
+  if (error) {
     return (
-      <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
-        <div className="flex items-center">
-          <AlertCircle className="h-5 w-5 text-red-500 mr-2" />
-          <p className="text-sm text-red-600">{actionError}</p>
-        </div>
-        <button onClick={() => setActionError(null)} className="mt-2 text-sm text-red-600 hover:text-red-800 underline">
-          Dismiss
+      <div className="text-center p-8 text-red-500 bg-red-50 rounded-lg border border-red-200">
+        <AlertCircle className="h-12 w-12 mx-auto text-red-400 mb-4" />
+        <p className="text-lg mb-2">Error loading activities</p>
+        <p className="text-sm">Failed to load main activities. Please try again.</p>
+        <button
+          onClick={handleManualRefresh}
+          className="mt-4 px-4 py-2 bg-red-100 text-red-700 rounded-md hover:bg-red-200"
+        >
+          Try Again
         </button>
       </div>
     );
   }
 
-  if (!activitiesList?.data || filteredActivities.length === 0) {
+  // Empty state
+  if (displayActivities.length === 0) {
     return (
       <div className="space-y-4">
         <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-medium text-gray-900">Weight Distribution (65% Rule)</h3>
-            <BarChart3 className="h-5 w-5 text-gray-400" />
+            <h3 className="text-lg font-medium text-gray-900">
+              Activity Weight Distribution (65% Rule)
+            </h3>
+            <div className="flex items-center space-x-2">
+              <Activity className="h-5 w-5 text-gray-400" />
+              <span className="text-xs text-gray-500">
+                (Raw: {safeActivitiesData.length}, Filtered: {displayActivities.length})
+              </span>
+              <button
+                onClick={handleManualRefresh}
+                disabled={isLoading}
+                className="text-sm text-blue-600 hover:text-blue-800 flex items-center"
+                title="Refresh activities"
+              >
+                <Loader className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+              </button>
+            </div>
           </div>
+
           <div className="grid grid-cols-3 gap-4 text-center">
             <div>
               <p className="text-sm text-gray-500">Initiative Weight</p>
@@ -656,37 +620,60 @@ const MainActivityList: React.FC<MainActivityListProps> = ({
             </div>
             <div>
               <p className="text-sm text-gray-500">Max Allowed (65%)</p>
-              <p className="text-2xl font-semibold text-blue-600">{maxAllowedWeight.toFixed(1)}%</p>
+              <p className="text-2xl font-semibold text-blue-600">{maxAllowedWeight}%</p>
             </div>
             <div>
               <p className="text-sm text-gray-500">Available</p>
-              <p className="text-2xl font-semibold text-green-600">{maxAllowedWeight.toFixed(1)}%</p>
+              <p className="text-2xl font-semibold text-green-600">{maxAllowedWeight}%</p>
             </div>
           </div>
+
           <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
             <p className="text-sm text-blue-700 flex items-center">
               <Info className="h-4 w-4 mr-2" />
-              Main activities can use up to 65% of initiative weight ({initiativeWeight}%).
+              <strong>65% Rule:</strong> Total main activities weight must not exceed {maxAllowedWeight}%
+              (65% of initiative weight {initiativeWeight}%).
             </p>
           </div>
         </div>
+
         <div className="text-center p-8 bg-white rounded-lg border-2 border-dashed border-gray-200">
+          <Activity className="h-12 w-12 mx-auto text-gray-400 mb-4" />
           <h3 className="text-lg font-medium text-gray-900 mb-2">No Main Activities Found</h3>
-          <p className="text-gray-500 mb-4">No main activities created yet.</p>
-          {isUserPlanner ? (
+          <p className="text-gray-500 mb-4">
+            {safeActivitiesData.length === 0
+              ? "No main activities have been created yet for this initiative."
+              : `Found ${safeActivitiesData.length} activities, but none match your organization (${userOrgId || 'none'}).`
+            }
+          </p>
+          <div className="flex justify-center space-x-3">
             <button
-              onClick={() => onEditActivity({} as MainActivity)}
-              className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-orange-600 hover:bg-orange-700"
+              onClick={handleManualRefresh}
+              disabled={isLoading}
+              className="px-4 py-2 bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 flex items-center"
             >
-              <PlusCircle className="h-4 w-4 mr-2" />
-              Create Main Activity
+              <Loader className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+              {isLoading ? 'Loading...' : 'Check Again'}
             </button>
-          ) : (
-            <p className="text-sm text-gray-500 flex items-center justify-center">
-              <Lock className="h-4 w-4 mr-2" />
-              You lack permissions to create activities.
-            </p>
-          )}
+            {isUserPlanner && (
+              <button
+                onClick={() => onEditActivity({ organization: userOrgId } as MainActivity)}
+                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700"
+              >
+                <PlusCircle className="h-4 w-4 mr-2" />
+                Create First Main Activity
+              </button>
+            )}
+          </div>
+
+          {/* Debug info */}
+          <div className="mt-4 p-3 bg-gray-100 rounded text-xs text-gray-600">
+            <p>Debug: Initiative ID: {initiativeId}</p>
+            <p>User Org ID: {userOrgId || 'Not set'}</p>
+            <p>Raw Activities: {safeActivitiesData.length}</p>
+            <p>After Filtering: {displayActivities.length}</p>
+            <p>Normalized User Org: {normalizeId(userOrgId)}</p>
+          </div>
         </div>
       </div>
     );
@@ -694,29 +681,333 @@ const MainActivityList: React.FC<MainActivityListProps> = ({
 
   return (
     <div className="space-y-4">
-      {/* Error display */}
-      {actionError && (
-        <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
-          <div className="flex items-center">
-            <AlertCircle className="h-5 w-5 text-red-500 mr-2" />
-            <p className="text-sm text-red-600">{actionError}</p>
+      {/* Weight Distribution Card */}
+      <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-medium text-gray-900">
+            Activity Weight Distribution (65% Rule)
+          </h3>
+          <div className="flex items-center space-x-2">
+            <Activity className="h-5 w-5 text-gray-400" />
+            <span className="text-xs text-gray-500">({displayActivities.length} activities)</span>
+            <button
+              onClick={handleManualRefresh}
+              disabled={isLoading}
+              className="text-sm text-blue-600 hover:text-blue-800 flex items-center"
+              title="Refresh activities"
+            >
+              <Loader className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+            </button>
           </div>
-          <button 
-            onClick={() => setActionError(null)} 
-            className="mt-2 text-sm text-red-600 hover:text-red-800 underline"
-          >
-            Dismiss
-          </button>
         </div>
-      )}
 
-      {/* Success message */}
-      {validationSuccess && (
-        <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
-          <div className="flex items-center">
-            <CheckCircle className="h-5 w-5 text-green-500 mr-2" />
-            <p className="text-sm text-green-600">{validationSuccess}</p>
+        <div className="grid grid-cols-3 gap-4 text-center">
+          <div>
+            <p className="text-sm text-gray-500">Initiative Weight</p>
+            <p className="text-2xl font-semibold text-gray-900">{initiativeWeight}%</p>
           </div>
+          <div>
+            <p className="text-sm text-gray-500">Current Total</p>
+            <p className="text-2xl font-semibold text-orange-600">{totalActivitiesWeight.toFixed(1)}%</p>
+          </div>
+          <div>
+            <p className="text-sm text-gray-500">Remaining</p>
+            <p className={`text-2xl font-semibold ${isWeightValid ? 'text-green-600' : 'text-red-600'}`}>
+              {remainingWeight.toFixed(1)}%
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
+          <p className="text-sm text-blue-700 flex items-center">
+            <Info className="h-4 w-4 mr-2" />
+            <strong>65% Rule:</strong> Total activities weight must not exceed {maxAllowedWeight}%
+            (65% of initiative weight {initiativeWeight}%). Currently showing {displayActivities.length} activities.
+          </p>
+        </div>
+
+        {!isWeightValid && (
+          <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-md flex items-center gap-2 text-red-700">
+            <AlertCircle className="h-5 w-5" />
+            <p className="text-sm">Activities weight exceeds maximum allowed by {Math.abs(remainingWeight).toFixed(1)}%</p>
+          </div>
+        )}
+
+        {/* Validation Messages */}
+        {validationSuccess && (
+          <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-md flex items-center gap-2 text-green-700">
+            <CheckCircle className="h-5 w-5" />
+            <p className="text-sm">{validationSuccess}</p>
+          </div>
+        )}
+
+        {validationError && (
+          <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-md flex items-center gap-2 text-red-700">
+            <AlertCircle className="h-5 w-5" />
+            <p className="text-sm">{validationError}</p>
+          </div>
+        )}
+
+        {isUserPlanner && displayActivities.length > 0 && (
+          <div className="mt-4">
+            <button
+              onClick={handleValidateActivities}
+              disabled={isLoading}
+              className="w-full py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-orange-600 hover:bg-orange-700"
+            >
+              Validate Activities Weight ({totalActivitiesWeight.toFixed(1)}% / {maxAllowedWeight}%)
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Main Activities List */}
+      <div className="space-y-3" key={`activities-${refreshKey}-${displayActivities.length}`}>
+        <h3 className="text-sm font-medium text-gray-700 flex items-center">
+          <span className="inline-flex items-center px-2.5 py-0.5 mr-2 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
+            Activities ({displayActivities.length})
+          </span>
+          Main Activities
+          {isLoading && (
+            <Loader className="h-4 w-4 ml-2 animate-spin text-blue-500" />
+          )}
+        </h3>
+
+        {displayActivities.map((activity) => {
+          const subActivitiesList = activity.sub_activities || [];
+
+          // Calculate budget summary from sub-activities
+          const totalBudget = subActivitiesList.reduce((sum, sub) => {
+            const cost = sub.budget_calculation_type === 'WITH_TOOL'
+              ? Number(sub.estimated_cost_with_tool || 0)
+              : Number(sub.estimated_cost_without_tool || 0);
+            return sum + cost;
+          }, 0);
+
+          const totalFunding = subActivitiesList.reduce((sum, sub) => {
+            return sum + Number(sub.government_treasury || 0) +
+                       Number(sub.sdg_funding || 0) +
+                       Number(sub.partners_funding || 0) +
+                       Number(sub.other_funding || 0);
+          }, 0);
+
+          const fundingGap = Math.max(0, totalBudget - totalFunding);
+
+          return (
+            <div
+              key={activity.id}
+              className="bg-white p-4 rounded-lg shadow-sm border border-gray-200"
+            >
+              {/* Main Activity Header */}
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center">
+                  <Activity className="h-5 w-5 text-orange-600 mr-2" />
+                  <div>
+                    <h4 className="font-medium text-gray-900">{activity.name}</h4>
+                    <div className="flex items-center mt-1 space-x-3">
+                      <span className="text-sm font-medium text-orange-600">{activity.weight}%</span>
+                      {activity.organization_name && (
+                        <div className="flex items-center text-sm text-gray-600">
+                          <Building2 className="h-3 w-3 mr-1" />
+                          <span>{activity.organization_name}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Main Activity Edit/Delete Buttons */}
+           {isUserPlanner && (
+  <div className="flex space-x-1">
+    <button
+      onClick={(e) => {
+        e.stopPropagation();
+        onEditActivity(activity);
+      }}
+      className="text-xs text-blue-600 hover:text-blue-800 flex items-center px-1.5 py-0.5 border border-blue-200 rounded"
+    >
+      <Edit className="h-3 w-3 mr-1" />
+      Edit
+    </button>
+    <button
+      onClick={(e) => {
+        e.stopPropagation();
+        handleDeleteActivity(activity.id, e);
+      }}
+      disabled={deleteActivityMutation.isPending}
+      className="text-xs text-red-600 hover:text-red-800 flex items-center px-1.5 py-0.5 border border-red-200 rounded disabled:opacity-50"
+    >
+      {deleteActivityMutation.isPending ? (
+        <Loader className="h-3 w-3 mr-1 animate-spin" />
+      ) : (
+        <Trash2 className="h-3 w-3 mr-1" />
+      )}
+      {deleteActivityMutation.isPending ? 'Deleting...' : 'Delete'}
+    </button>
+  </div>
+)}
+              </div>
+
+              {/* Activity Details */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3 text-xs text-gray-500">
+                <div>Baseline: {activity.baseline || 'N/A'}</div>
+                <div>Annual: {activity.annual_target || 0}</div>
+                <div>Q1: {activity.q1_target || 0}</div>
+                <div>Q2: {activity.q2_target || 0}</div>
+                <div>Q3: {activity.q3_target || 0}</div>
+                <div>Q4: {activity.q4_target || 0}</div>
+                <div>Type: {activity.target_type || 'cumulative'}</div>
+                <div>Sub-activities: {subActivitiesList.length}</div>
+              </div>
+
+              {/* Budget Summary */}
+              {totalBudget > 0 && (
+                <div className="mb-3 p-3 bg-gray-50 rounded border border-gray-200">
+                  <div className="flex items-center justify-between text-sm">
+                    <div className="flex items-center">
+                      <DollarSign className="h-4 w-4 text-green-600 mr-1" />
+                      <span className="text-gray-600">Total Budget:</span>
+                    </div>
+                    <div className="flex space-x-4">
+                      <span className="text-gray-700">Required: ${totalBudget.toLocaleString()}</span>
+                      <span className="text-blue-600">Available: ${totalFunding.toLocaleString()}</span>
+                      {fundingGap > 0 ? (
+                        <span className="text-red-600">Gap: ${fundingGap.toLocaleString()}</span>
+                      ) : totalBudget > 0 ? (
+                        <span className="text-green-600">Fully Funded</span>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Sub-activities Section */}
+              <div className="border-t border-gray-200 pt-3">
+                <div className="flex items-center justify-between mb-2">
+                  <h5 className="text-sm font-medium text-gray-600">
+                    Sub-activities ({subActivitiesList.length})
+                  </h5>
+                  {isUserPlanner && (
+                    <button
+                      onClick={() => handleAddSubActivity(activity)}
+                      className="text-sm text-green-600 hover:text-green-800 flex items-center px-2 py-1 border border-green-200 rounded"
+                    >
+                      <PlusCircle className="h-4 w-4 mr-1" />
+                      Add Sub-activity
+                    </button>
+                  )}
+                </div>
+
+                {subActivitiesList.length === 0 ? (
+                  <div className="text-center p-4 bg-gray-50 rounded border-2 border-dashed border-gray-200">
+                    <p className="text-sm text-gray-500">No sub-activities created yet</p>
+                    {isUserPlanner && (
+                      <button
+                        onClick={() => handleAddSubActivity(activity)}
+                        className="mt-2 text-sm text-green-600 hover:text-green-800"
+                      >
+                        Click here to add the first sub-activity
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {subActivitiesList.map((subActivity) => (
+                      <div
+                        key={subActivity.id}
+                        onClick={(e) => handleViewSubActivity(activity, subActivity, e)}
+                        className="p-3 bg-white border border-gray-200 rounded hover:border-blue-300 transition-colors cursor-pointer"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center justify-between">
+                              <span className="font-medium text-gray-900">{subActivity.name}</span>
+                              <div className="flex items-center space-x-2">
+                                <span className="text-xs bg-blue-100 px-2 py-0.5 rounded text-blue-800">
+                                  {subActivity.activity_type}
+                                </span>
+                                <span className="text-xs bg-gray-100 px-2 py-0.5 rounded text-gray-600">
+                                  {subActivity.budget_calculation_type === 'WITH_TOOL' ? 'Tool' : 'Manual'}
+                                </span>
+                              </div>
+                            </div>
+
+                            {subActivity.description && (
+                              <p className="text-xs text-gray-500 mt-1">{subActivity.description}</p>
+                            )}
+
+                            <div className="flex items-center justify-between mt-2">
+                              <div className="text-xs text-gray-600">
+                                Budget: ${subActivity.budget_calculation_type === 'WITH_TOOL'
+                                  ? Number(subActivity.estimated_cost_with_tool || 0).toLocaleString()
+                                  : Number(subActivity.estimated_cost_without_tool || 0).toLocaleString()
+                                }
+                              </div>
+
+                              <div className="flex space-x-2">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleViewSubActivity(activity, subActivity, e);
+                                  }}
+                                  className="text-xs text-blue-600 hover:text-blue-800 flex items-center"
+                                >
+                                  <Eye className="h-3 w-3 mr-1" />
+                                  View
+                                </button>
+                                {isUserPlanner && (
+                                  <>
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleEditSubActivity(activity, subActivity);
+                                      }}
+                                      className="text-xs text-green-600 hover:text-green-800 flex items-center"
+                                    >
+                                      <Edit className="h-3 w-3 mr-1" />
+                                      Edit
+                                    </button>
+                                    <button
+                                      onClick={(e) => handleDeleteSubActivity(subActivity.id, e)}
+                                      disabled={deleteSubActivityMutation.isPending}
+                                      className="text-xs text-red-600 hover:text-red-800 flex items-center disabled:opacity-50"
+                                    >
+                                      {deleteSubActivityMutation.isPending ? (
+                                        <Loader className="h-3 w-3 mr-1 animate-spin" />
+                                      ) : (
+                                        <Trash2 className="h-3 w-3 mr-1" />
+                                      )}
+                                      Delete
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Add main activity button */}
+      {isUserPlanner && (
+        <div className="mt-4 text-center">
+          <button
+            onClick={() => onEditActivity({ organization: userOrgId } as MainActivity)}
+            disabled={remainingWeight <= 0}
+            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <PlusCircle className="h-4 w-4 mr-2" />
+            {displayActivities.length === 0 ? 'Create First Main Activity' :
+             remainingWeight <= 0 ? `No Weight Available (${remainingWeight.toFixed(1)}%)` :
+             'Create New Main Activity'}
+          </button>
         </div>
       )}
 
@@ -849,7 +1140,7 @@ const MainActivityList: React.FC<MainActivityListProps> = ({
                     <div>
                       <label className="text-sm font-medium text-gray-700">Estimated Cost</label>
                       <p className="text-lg font-semibold text-green-600">
-                        ETB {selectedSubActivity.budget_calculation_type === 'WITH_TOOL'
+                        ${selectedSubActivity.budget_calculation_type === 'WITH_TOOL'
                           ? Number(selectedSubActivity.estimated_cost_with_tool || 0).toLocaleString()
                           : Number(selectedSubActivity.estimated_cost_without_tool || 0).toLocaleString()
                         }
@@ -858,7 +1149,7 @@ const MainActivityList: React.FC<MainActivityListProps> = ({
                     <div>
                       <label className="text-sm font-medium text-gray-700">Total Funding</label>
                       <p className="text-lg font-semibold text-blue-600">
-                        ETB {(
+                        ${(
                           Number(selectedSubActivity.government_treasury || 0) +
                           Number(selectedSubActivity.sdg_funding || 0) +
                           Number(selectedSubActivity.partners_funding || 0) +
@@ -871,19 +1162,19 @@ const MainActivityList: React.FC<MainActivityListProps> = ({
                   <div className="mt-4 space-y-2 text-sm">
                     <div className="flex justify-between">
                       <span className="text-gray-600">Government Treasury:</span>
-                      <span>ETB {Number(selectedSubActivity.government_treasury || 0).toLocaleString()}</span>
+                      <span>${Number(selectedSubActivity.government_treasury || 0).toLocaleString()}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-600">SDG Funding:</span>
-                      <span>ETB {Number(selectedSubActivity.sdg_funding || 0).toLocaleString()}</span>
+                      <span>${Number(selectedSubActivity.sdg_funding || 0).toLocaleString()}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-600">Partners Funding:</span>
-                      <span>ETB {Number(selectedSubActivity.partners_funding || 0).toLocaleString()}</span>
+                      <span>${Number(selectedSubActivity.partners_funding || 0).toLocaleString()}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-600">Other Funding:</span>
-                      <span>ETB {Number(selectedSubActivity.other_funding || 0).toLocaleString()}</span>
+                      <span>${Number(selectedSubActivity.other_funding || 0).toLocaleString()}</span>
                     </div>
                   </div>
                 </div>
@@ -910,281 +1201,6 @@ const MainActivityList: React.FC<MainActivityListProps> = ({
               </div>
             </div>
           </div>
-        </div>
-      )}
-
-      {/* Weight Distribution Card */}
-      <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-medium text-gray-900">Weight Distribution (65% Rule)</h3>
-          <BarChart3 className="h-5 w-5 text-gray-400" />
-        </div>
-        <div className="grid grid-cols-4 gap-4 text-center">
-          <div>
-            <p className="text-sm text-gray-500">Initiative Weight</p>
-            <p className="text-2xl font-semibold text-gray-900">{initiativeWeight}%</p>
-          </div>
-          <div>
-            <p className="text-sm text-gray-500">Max Allowed (65%)</p>
-            <p className="text-2xl font-semibold text-blue-600">{maxAllowedWeight.toFixed(1)}%</p>
-          </div>
-          <div>
-            <p className="text-sm text-gray-500">Current Total</p>
-            <p className="text-2xl font-semibold text-orange-600">{totalActivitiesWeight.toFixed(1)}%</p>
-          </div>
-          <div>
-            <p className="text-sm text-gray-500">Remaining</p>
-            <p className={`text-2xl font-semibold ${isWeightValid ? 'text-green-600' : 'text-red-600'}`}>
-              {remainingWeight.toFixed(1)}%
-            </p>
-          </div>
-        </div>
-        <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
-          <p className="text-sm text-blue-700 flex items-center">
-            <Info className="h-4 w-4 mr-2" />
-            Main activities: {totalActivitiesWeight.toFixed(1)}% / {maxAllowedWeight.toFixed(1)}%
-          </p>
-        </div>
-        {validationSuccess && (
-          <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-md flex items-center text-green-700">
-            <CheckCircle className="h-5 w-5 mr-2" />
-            <p className="text-sm">{validationSuccess}</p>
-          </div>
-        )}
-        {validationError && (
-          <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-md flex items-center text-red-700">
-            <AlertCircle className="h-5 w-5 mr-2" />
-            <p className="text-sm">{validationError}</p>
-          </div>
-        )}
-        {isUserPlanner && (
-          <div className="mt-4">
-            <button
-              onClick={handleValidateActivities}
-              disabled={filteredActivities.length === 0}
-              className="w-full py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-orange-600 hover:bg-orange-700 disabled:opacity-50"
-            >
-              Validate Weights
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* Main Activities List */}
-      <div className="space-y-3">
-        <h3 className="text-sm font-medium text-gray-700">Main Activities ({filteredActivities.length})</h3>
-        {filteredActivities.map((activity: any) => {
-          const budgetRequired = activity.sub_activities?.reduce((sum: number, sub: SubActivity) => {
-            return sum + (sub.budget_calculation_type === 'WITH_TOOL' ? Number(sub.estimated_cost_with_tool || 0) : Number(sub.estimated_cost_without_tool || 0));
-          }, 0) || 0;
-          const totalFunding = activity.sub_activities?.reduce((sum: number, sub: SubActivity) => {
-            return sum + Number(sub.government_treasury || 0) + Number(sub.sdg_funding || 0) + Number(sub.partners_funding || 0) + Number(sub.other_funding || 0);
-          }, 0) || 0;
-          const fundingGap = Math.max(0, budgetRequired - totalFunding);
-          return (
-            <div
-              key={activity.id}
-              onClick={() => onSelectActivity?.(activity)}
-              className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 hover:border-orange-300 cursor-pointer"
-            >
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center">
-                  <Activity className="h-5 w-5 text-orange-600 mr-2" />
-                  <div>
-                    <h4 className="font-medium text-gray-900">{activity.name}</h4>
-                    <div className="flex items-center mt-1 space-x-3">
-                      <span className="text-sm font-medium text-orange-600">{activity.weight}%</span>
-                      {activity.organization_name && (
-                        <div className="flex items-center text-sm text-gray-600">
-                          <Building2 className="h-3 w-3 mr-1" />
-                          <span>{activity.organization_name}</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-                <span className="text-sm font-medium text-orange-600">{activity.weight}%</span>
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-2 text-xs text-gray-500">
-                <div>Baseline: {activity.baseline || 'N/A'}</div>
-                <div>Annual Target: {activity.annual_target || 0}</div>
-                <div>Q1: {activity.q1_target || 0}</div>
-                <div>Q2: {activity.q2_target || 0}</div>
-                <div>Q3: {activity.q3_target || 0}</div>
-                <div>Q4: {activity.q4_target || 0}</div>
-              </div>
-              <div className="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
-                <div className="flex items-center justify-between mb-3">
-                  <h5 className="text-sm font-medium text-gray-700 flex items-center">
-                    <DollarSign className="h-4 w-4 mr-1" />
-                    Sub-Activities ({activity.sub_activities?.length || 0})
-                  </h5>
-                  {budgetRequired > 0 && (
-                    <div className="text-xs text-gray-600">Total Budget: ETB {budgetRequired.toLocaleString()}</div>
-                  )}
-                </div>
-                {activity.sub_activities?.length > 0 ? (
-                  activity.sub_activities.map((subActivity: SubActivity) => {
-                    const subCost = subActivity.budget_calculation_type === 'WITH_TOOL'
-                      ? Number(subActivity.estimated_cost_with_tool || 0)
-                      : Number(subActivity.estimated_cost_without_tool || 0);
-                    const subFunding = Number(subActivity.government_treasury || 0) +
-                                      Number(subActivity.sdg_funding || 0) +
-                                      Number(subActivity.partners_funding || 0) +
-                                      Number(subActivity.other_funding || 0);
-                    const subGap = Math.max(0, subCost - subFunding);
-                    return (
-                      <div
-  key={subActivity.id}
-  className="bg-white p-3 rounded border border-gray-200 mb-2"
->
-  <div className="flex items-center justify-between mb-2 gap-2">
-    <div className="flex items-center min-w-0 flex-1">
-      <span className="text-sm font-medium text-gray-900 truncate">
-        {subActivity.name}
-      </span>
-      <span className="ml-2 px-2 py-0.5 bg-blue-100 text-blue-800 text-xs rounded-full flex-shrink-0">
-        {subActivity.activity_type}
-      </span>
-    </div>
-    <div className="flex items-center space-x-1 flex-shrink-0">
-      <button
-        onClick={(e) => handleViewSubActivity(activity, subActivity, e)}
-        className="text-xs text-gray-600 hover:text-gray-800 flex items-center p-1 rounded hover:bg-gray-50"
-        title="View sub-activity details"
-      >
-        <Eye className="h-3 w-3 mr-1" />
-        View
-      </button>
-      {isUserPlanner && (
-        <>
-          <button
-            onClick={() => handleEditSubActivity(activity, subActivity)}
-            className="text-xs text-blue-600 hover:text-blue-800 flex items-center p-1 rounded hover:bg-blue-50"
-            title="Edit sub-activity"
-          >
-            <Edit className="h-3 w-3 mr-1" />
-            Edit
-          </button>
-          <button
-            onClick={(e) => handleDeleteSubActivity(subActivity.id, subActivity.name, e)}
-            disabled={deleteSubActivityMutation.isPending}
-            className="text-xs text-red-600 hover:text-red-800 flex items-center p-1 rounded hover:bg-red-50 disabled:opacity-50"
-            title="Delete sub-activity"
-          >
-            {deleteSubActivityMutation.isPending ? (
-              <Loader className="h-3 w-3 animate-spin mr-1" />
-            ) : (
-              <Trash2 className="h-3 w-3 mr-1" />
-            )}
-            Delete
-          </button>
-        </>
-      )}
-    </div>
-  </div>
-  {subActivity.description && (
-    <p className="text-xs text-gray-600 mb-2">{subActivity.description}</p>
-  )}
-  <div className="grid grid-cols-2 gap-2 text-xs">
-    <div>Budget: ETB {subCost.toLocaleString()}</div>
-    <div>Available: ETB {subFunding.toLocaleString()}</div>
-    {subGap > 0 && (
-      <div className="text-red-600 col-span-2">
-        Gap: ETB {subGap.toLocaleString()}
-      </div>
-    )}
-  </div>
-</div>
-                    );
-                  })
-                ) : (
-                  <div className="text-center text-sm text-gray-500">No sub-activities found</div>
-                )}
-                {isUserPlanner && (
-                  <button
-                    onClick={(e) => handleAddSubActivity(activity, e)}
-                    className="mt-3 w-full py-2 px-3 border border-dashed border-gray-300 rounded-md text-sm text-gray-600 hover:border-gray-400 hover:text-gray-700 flex items-center justify-center"
-                    title="Add new sub-activity"
-                  >
-                    <Plus className="h-4 w-4 mr-1" />
-                    Add Sub-Activity
-                  </button>
-                )}
-              </div>
-              {budgetRequired > 0 && (
-                <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                  <div className="grid grid-cols-3 gap-2 text-sm">
-                    <div className="text-center">
-                      <div className="text-blue-600 font-medium">Required</div>
-                      <div className="text-blue-800 font-bold">ETB {budgetRequired.toLocaleString()}</div>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-blue-600 font-medium">Available</div>
-                      <div className="text-blue-800 font-bold">ETB {totalFunding.toLocaleString()}</div>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-blue-600 font-medium">Gap</div>
-                      <div className={`font-bold ${fundingGap > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                        ETB {fundingGap.toLocaleString()}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-              <div className="flex justify-end mt-3">
-                {isUserPlanner ? (
-                  <div className="flex space-x-2">
-                    {onViewActivityBudget && (
-                      <button
-                        onClick={(e) => { e.stopPropagation(); onViewActivityBudget(activity); }}
-                        className="text-xs text-gray-600 hover:text-gray-800 flex items-center"
-                        title="View activity budget"
-                      >
-                        <Eye className="h-4 w-4 mr-1" />
-                        View Budget
-                      </button>
-                    )}
-                    <button
-                      onClick={(e) => { e.stopPropagation(); onEditActivity(activity); }}
-                      className="text-xs text-orange-600 hover:text-orange-800 flex items-center"
-                      title="Edit activity"
-                    >
-                      <Edit className="h-4 w-4 mr-1" />
-                      Edit
-                    </button>
-                    <button
-                      onClick={(e) => handleDeleteActivity(activity.id, activity.name, e)}
-                      disabled={deleteActivityMutation.isPending}
-                      className="text-xs text-red-600 hover:text-red-800 flex items-center disabled:opacity-50"
-                      title="Delete activity"
-                    >
-                      {deleteActivityMutation.isPending ? <Loader className="h-4 w-4 mr-1 animate-spin" /> : <Trash2 className="h-4 w-4 mr-1" />}
-                      Delete
-                    </button>
-                  </div>
-                ) : (
-                  <span className="text-xs text-gray-500 flex items-center">
-                    <Lock className="h-3 w-3 mr-1" />
-                    Read Only
-                  </span>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-      {isUserPlanner && (
-        <div className="mt-4 text-center">
-          <button
-            onClick={() => onEditActivity({} as MainActivity)}
-            disabled={remainingWeight <= 0}
-            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-orange-600 hover:bg-orange-700 disabled:opacity-50"
-            title="Create new main activity"
-          >
-            <PlusCircle className="h-4 w-4 mr-2" />
-            Create Main Activity
-          </button>
         </div>
       )}
     </div>
