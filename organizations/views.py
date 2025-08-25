@@ -13,6 +13,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework import status
+from django.db import transaction
 from django.utils import timezone
 from .models import (
     Organization, OrganizationUser, StrategicObjective,
@@ -1004,6 +1005,34 @@ class MainActivityViewSet(viewsets.ModelViewSet):
                 print(f"Found {sub_activities.count()} sub-activities to delete")
                 
                 # Delete all sub-activities (which will cascade to their budgets)
+    @transaction.atomic
+    def destroy(self, request, *args, **kwargs):
+        """
+        Custom destroy method to handle cascade deletes properly in production
+        """
+        try:
+            instance = self.get_object()
+            instance_name = instance.name
+            
+            print(f"MainActivityViewSet: Starting delete for main activity {instance.id} ({instance_name})")
+            
+            # Use the model's custom delete method which handles cascades
+            instance.delete()
+            
+            print(f"MainActivityViewSet: Successfully deleted main activity {instance_name}")
+            
+            return Response(
+                {"detail": f"Main activity '{instance_name}' and all related data deleted successfully"},
+                status=status.HTTP_204_NO_CONTENT
+            )
+            
+        except Exception as e:
+            print(f"MainActivityViewSet: Error deleting main activity: {e}")
+            return Response(
+                {"detail": f"Failed to delete main activity: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
                 for sub_activity in sub_activities:
                     try:
                         print(f"Deleting sub-activity: {sub_activity.id} ({sub_activity.name})")
@@ -1204,6 +1233,34 @@ class SubActivityViewSet(viewsets.ModelViewSet):
         """Add budget for a sub-activity"""
         try:
             sub_activity = self.get_object()
+    @transaction.atomic
+    def destroy(self, request, *args, **kwargs):
+        """
+        Custom destroy method to handle cascade deletes properly in production
+        """
+        try:
+            instance = self.get_object()
+            instance_name = instance.name
+            
+            print(f"SubActivityViewSet: Starting delete for sub-activity {instance.id} ({instance_name})")
+            
+            # Use the model's custom delete method which handles cascades
+            instance.delete()
+            
+            print(f"SubActivityViewSet: Successfully deleted sub-activity {instance_name}")
+            
+            return Response(
+                {"detail": f"Sub-activity '{instance_name}' and all related data deleted successfully"},
+                status=status.HTTP_204_NO_CONTENT
+            )
+            
+        except Exception as e:
+            print(f"SubActivityViewSet: Error deleting sub-activity: {e}")
+            return Response(
+                {"detail": f"Failed to delete sub-activity: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
             budget_data = request.data
 
             # Create budget for this sub-activity

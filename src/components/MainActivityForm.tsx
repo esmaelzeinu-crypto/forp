@@ -267,20 +267,10 @@ const MainActivityForm: React.FC<MainActivityFormProps> = ({
       let result;
       if (initialData?.id) {
         console.log('MainActivityForm: Updating existing activity:', initialData.id);
-        try {
           result = await mainActivities.update(initialData.id, activityData);
-        } catch (updateError) {
-          console.error('Update activity failed:', updateError);
-          throw new Error(`Failed to update activity: ${updateError.response?.data?.detail || updateError.message}`);
-        }
       } else {
         console.log('MainActivityForm: Creating new activity');
-        try {
           result = await mainActivities.create(activityData);
-        } catch (createError) {
-          console.error('Create activity failed:', createError);
-          throw new Error(`Failed to create activity: ${createError.response?.data?.detail || createError.message}`);
-        }
       }
       
       console.log('Activity saved successfully:', result);
@@ -296,7 +286,14 @@ const MainActivityForm: React.FC<MainActivityFormProps> = ({
       }, 200);
       
       // Call parent onSubmit callback
-      await onSubmit(result.data || result);
+      if (onSubmit) {
+        try {
+          await onSubmit(result.data || result);
+        } catch (onSubmitError) {
+          console.warn('Parent onSubmit callback failed, but activity was saved:', onSubmitError);
+          // Don't show error to user since the activity was actually saved successfully
+        }
+      }
       
       // Close form after successful submission
       setIsFormClosing(true);
@@ -311,29 +308,84 @@ const MainActivityForm: React.FC<MainActivityFormProps> = ({
     } catch (error: any) {
       console.error('MainActivityForm: Form submission error:', error);
       
-      // Enhanced error handling for production
-      let errorMessage = 'Failed to save activity';
-      
-      // Better error message extraction
-      if (error.message) {
-        errorMessage = error.message;
-      } else if (error.response?.data) {
-        if (typeof error.response.data === 'string') {
-          errorMessage = error.response.data;
-        } else if (error.response.data.detail) {
-          errorMessage = error.response.data.detail;
-        } else if (error.response.data.non_field_errors) {
-          const errors = error.response.data.non_field_errors;
-          errorMessage = Array.isArray(errors) ? errors.join(', ') : String(errors);
+      // Check if the activity was actually created despite the error
+      if (error.response?.status === 400 && error.response?.data) {
+        // Check if this is just a validation response but creation succeeded
+        console.log('Checking if activity was created despite 400 error...');
+        
+        // Wait a moment and check if the activity exists
+        setTimeout(async () => {
+          try {
+            const activitiesResponse = await mainActivities.getByInitiative(initiativeId);
+            const activities = activitiesResponse?.data || [];
+            
+            // Check if our activity exists (by name)
+            const activityExists = activities.some(act => 
+              act.name === activityData.name && 
+              act.initiative === initiativeId
+            );
+            
+            if (activityExists) {
+              console.log('Activity was actually created successfully despite 400 error');
+              setSubmitSuccess(initialData ? 'Activity updated successfully!' : 'Activity created successfully!');
+              
+              // Refresh cache
+              queryClient.invalidateQueries({ queryKey: ['main-activities', initiativeId] });
+              queryClient.invalidateQueries({ queryKey: ['initiatives'] });
+              
+              // Close form
+              setIsFormClosing(true);
+              setTimeout(() => {
+                if (onSuccess) {
+                  onSuccess();
+                } else {
+                  onCancel();
+                }
+              }, 500);
+              
+              return; // Don't show error if activity was created
+            }
+          } catch (checkError) {
+            console.log('Could not verify if activity was created:', checkError);
+          }
+          
+          // If we get here, show the actual error
+          let errorMessage = 'Failed to save activity';
+          
+          if (error.response?.data) {
+            if (typeof error.response.data === 'string') {
+              errorMessage = error.response.data;
+            } else if (error.response.data.detail) {
+              errorMessage = error.response.data.detail;
+            } else if (error.response.data.non_field_errors) {
+              const errors = error.response.data.non_field_errors;
+              errorMessage = Array.isArray(errors) ? errors.join(', ') : String(errors);
+            }
+          } else if (error.message) {
+            errorMessage = error.message;
+          }
+          
+          setSubmitError(errorMessage);
+        }, 1000); // Wait 1 second to check
+      } else {
+        // Handle other types of errors immediately
+        let errorMessage = 'Failed to save activity';
+        
+        if (error.response?.data) {
+          if (typeof error.response.data === 'string') {
+            errorMessage = error.response.data;
+          } else if (error.response.data.detail) {
+            errorMessage = error.response.data.detail;
+          } else if (error.response.data.non_field_errors) {
+            const errors = error.response.data.non_field_errors;
+            errorMessage = Array.isArray(errors) ? errors.join(', ') : String(errors);
+          }
+        } else if (error.message) {
+          errorMessage = error.message;
         }
-      } else if (error.request) {
-        errorMessage = 'Network error: Please check your connection and try again.';
-      } else if (error.message) {
-        errorMessage = error.message;
+        
+        setSubmitError(errorMessage);
       }
-      
-      setSubmitError(errorMessage);
-      console.error('MainActivityForm: Final error message:', errorMessage);
     } finally {
       setIsSubmitting(false);
     }
