@@ -348,6 +348,34 @@ const PlansTable: React.FC<PlansTableProps> = ({ onCreateNewPlan, userOrgId }) =
   // Delete initiative mutation
   const deleteInitiativeMutation = useMutation({
     mutationFn: async (initiativeId: string) => {
+      try {
+        console.log('Planning: Deleting initiative:', initiativeId);
+        
+        // Ensure authentication
+        await auth.getCurrentUser();
+        
+        // Delete the initiative (backend will handle cascade)
+        const response = await initiatives.delete(initiativeId);
+        console.log('Planning: Initiative deleted successfully');
+        return response;
+        
+      } catch (error) {
+        console.error('Planning: Delete initiative error:', error);
+        
+        // Production error handling
+        if (error.response?.status === 500) {
+          throw new Error('Server error occurred. The initiative may have dependencies preventing deletion. Please contact support if this persists.');
+        } else if (error.response?.status === 404) {
+          throw new Error('Initiative not found. It may have already been deleted.');
+        } else if (error.response?.status === 403) {
+          throw new Error('Permission denied. You do not have permission to delete this initiative.');
+        } else if (error.response?.data?.error) {
+          throw new Error(error.response.data.error);
+        }
+        
+        throw error;
+      }
+    },
       console.log('Planning: Deleting initiative:', initiativeId);
       
       try {
@@ -375,12 +403,26 @@ const PlansTable: React.FC<PlansTableProps> = ({ onCreateNewPlan, userOrgId }) =
       }
     },
     onSuccess: () => {
+      console.log('Planning: Initiative delete mutation successful');
+      setSuccess('Initiative deleted successfully');
+      setTimeout(() => setSuccess(null), 3000);
+      
+      // Reset selected initiative if it was deleted
+      if (selectedInitiative?.id === deleteInitiativeMutation.variables) {
+        setSelectedInitiative(null);
+      }
+      
       console.log('Planning: Initiative deletion successful, refreshing data');
       // Refresh the initiatives list
       queryClient.invalidateQueries({ queryKey: ['initiatives'] });
       queryClient.invalidateQueries({ queryKey: ['objectives'] });
       setSuccess('Initiative deleted successfully');
       setTimeout(() => setSuccess(null), 3000);
+    },
+    onError: (error: any) => {
+      console.error('Planning: Delete initiative mutation error:', error);
+      setError(error.message || 'Failed to delete initiative');
+      setTimeout(() => setError(null), 5000);
       
       // Reset selected initiative if it was the deleted one
       setSelectedInitiativeData(null);
