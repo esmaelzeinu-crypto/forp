@@ -260,43 +260,32 @@ const PlansTable: React.FC<PlansTableProps> = ({ onCreateNewPlan, userOrgId }) =
   // Delete main activity mutation
   const deleteMainActivityMutation = useMutation({
     mutationFn: async (activityId: string) => {
-      console.log('Planning: Deleting main activity:', activityId);
-      
+      console.log('Planning: Starting main activity delete for:', activityId);
       try {
-        // Ensure user is authenticated
-        await auth.getCurrentUser();
-        
-        // Use the main activities API service
-        const response = await mainActivities.delete(activityId);
-        console.log('Planning: Main activity deleted successfully');
-        return response;
-        
-      } catch (error) {
-        console.error('Planning: Delete main activity error:', error);
-        
-        // Handle specific production errors
-        if (error.response?.status === 500) {
-          throw new Error('Unable to delete main activity. It may have sub-activities that need to be removed first.');
-        } else if (error.response?.status === 404) {
-          throw new Error('Main activity not found or already deleted.');
-        } else if (error.response?.status === 403) {
-          throw new Error('You do not have permission to delete this main activity.');
-        }
-        
+        const result = await mainActivities.delete(activityId);
+        console.log('Planning: Main activity deleted successfully:', activityId);
+        return result;
+      } catch (error: any) {
+        console.error('Planning: Main activity delete error:', activityId, error);
         throw error;
       }
     },
     onSuccess: () => {
-      console.log('Planning: Main activity deletion successful, refreshing data');
-      // Refresh the activities list
-      queryClient.invalidateQueries({ queryKey: ['main-activities'] });
+      console.log('Planning: Main activity delete mutation succeeded');
+      // Clear selected initiative to force refresh
+      setSelectedInitiative(null);
+      
+      // Refresh all related queries
+      queryClient.invalidateQueries({ queryKey: ['objectives'] });
       queryClient.invalidateQueries({ queryKey: ['initiatives'] });
-      setSuccess('Main activity deleted successfully');
+      queryClient.invalidateQueries({ queryKey: ['main-activities'] });
+      
+      setSuccess('Main activity and all its sub-activities deleted successfully');
       setTimeout(() => setSuccess(null), 3000);
     },
     onError: (error: any) => {
-      console.error('Planning: Delete main activity mutation error:', error);
-      setError(error.message || 'Failed to delete main activity');
+      console.error('Planning: Failed to delete main activity:', error);
+      setError(error.message || 'Failed to delete main activity. Please try again.');
       setTimeout(() => setError(null), 5000);
     }
   });
