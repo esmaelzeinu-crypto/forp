@@ -583,6 +583,27 @@ class MainActivity(models.Model):
         self.clean()
         super().save(*args, **kwargs)
     
+    def delete(self, using=None, keep_parents=False):
+        """Custom delete method to handle sub-activities and related objects properly"""
+        # Delete all sub-activities first (which will cascade to their budgets)
+        try:
+            sub_activities = self.sub_activities.all()
+            for sub_activity in sub_activities:
+                sub_activity.delete()
+        except Exception as e:
+            print(f"Warning: Could not delete sub-activities for main activity {self.id}: {e}")
+        
+        # Delete any legacy budget records
+        try:
+            legacy_budgets = self.legacy_budgets.all()
+            for budget in legacy_budgets:
+                budget.delete()
+        except Exception as e:
+            print(f"Warning: Could not delete legacy budgets for main activity {self.id}: {e}")
+        
+        # Call parent delete
+        return super().delete(using=using, keep_parents=keep_parents)
+    
     def __str__(self):
         return self.name
 

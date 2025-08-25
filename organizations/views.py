@@ -989,6 +989,53 @@ class MainActivityViewSet(viewsets.ModelViewSet):
     queryset = MainActivity.objects.all()
     serializer_class = MainActivitySerializer
     permission_classes = [IsAuthenticated]
+    
+    def destroy(self, request, *args, **kwargs):
+        """Custom delete method with proper constraint handling"""
+        try:
+            instance = self.get_object()
+            
+            # Log the deletion attempt
+            print(f"Attempting to delete main activity: {instance.id} ({instance.name})")
+            
+            with transaction.atomic():
+                # Get all sub-activities for this main activity
+                sub_activities = instance.sub_activities.all()
+                print(f"Found {sub_activities.count()} sub-activities to delete")
+                
+                # Delete all sub-activities (which will cascade to their budgets)
+                for sub_activity in sub_activities:
+                    try:
+                        print(f"Deleting sub-activity: {sub_activity.id} ({sub_activity.name})")
+                        sub_activity.delete()
+                    except Exception as sub_error:
+                        print(f"Error deleting sub-activity {sub_activity.id}: {sub_error}")
+                        raise Exception(f"Failed to delete sub-activity '{sub_activity.name}': {str(sub_error)}")
+                
+                # Delete any legacy budget records
+                try:
+                    legacy_budgets = instance.legacy_budgets.all()
+                    for budget in legacy_budgets:
+                        print(f"Deleting legacy budget: {budget.id}")
+                        budget.delete()
+                except Exception as budget_error:
+                    print(f"Legacy budget deletion warning: {budget_error}")
+                
+                # Delete the main activity
+                instance.delete()
+                print(f"Main activity {instance.id} deleted successfully")
+            
+            return Response(
+                {'message': 'Main activity and all related data deleted successfully'}, 
+                status=status.HTTP_204_NO_CONTENT
+            )
+            
+        except Exception as e:
+            print(f"Error deleting main activity {kwargs.get('pk')}: {str(e)}")
+            return Response(
+                {'error': f'Failed to delete main activity: {str(e)}'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
     def get_queryset(self):
         queryset = super().get_queryset()

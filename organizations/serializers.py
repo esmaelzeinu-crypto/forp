@@ -356,6 +356,25 @@ class MainActivitySerializer(serializers.ModelSerializer):
         except DjangoValidationError as e:
             # Convert Django validation errors to DRF format
             raise serializers.ValidationError(e.messages)
+    
+    def delete(self, instance):
+        """Custom delete method for MainActivity"""
+        try:
+            # Delete all sub-activities first (cascade to their budgets)
+            sub_activities = instance.sub_activities.all()
+            for sub_activity in sub_activities:
+                sub_activity.delete()
+            
+            # Delete any legacy budget records
+            legacy_budgets = instance.legacy_budgets.all()
+            for budget in legacy_budgets:
+                budget.delete()
+            
+            # Delete the instance
+            instance.delete()
+            return True
+        except Exception as e:
+            raise serializers.ValidationError(f'Cannot delete main activity: {str(e)}')
 
 class ActivityBudgetSerializer(serializers.ModelSerializer):
     total_funding = serializers.SerializerMethodField()
