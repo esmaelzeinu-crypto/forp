@@ -1020,39 +1020,24 @@ class MainActivityViewSet(viewsets.ModelViewSet):
             
             # Use the model's custom delete method which handles cascades
             instance.delete()
-            
-            print(f"MainActivityViewSet: Successfully deleted main activity {instance_name}")
-            
-            return Response(
-                {"detail": f"Main activity '{instance_name}' and all related data deleted successfully"},
-                status=status.HTTP_204_NO_CONTENT
-            )
-            
-        except Exception as e:
-            print(f"MainActivityViewSet: Error deleting main activity: {e}")
-            return Response(
-                {"detail": f"Failed to delete main activity: {str(e)}"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
-                for sub_activity in sub_activities:
-                    try:
-                        print(f"Deleting sub-activity: {sub_activity.id} ({sub_activity.name})")
-                        sub_activity.delete()
-                    except Exception as sub_error:
-                        print(f"Error deleting sub-activity {sub_activity.id}: {sub_error}")
-                        raise Exception(f"Failed to delete sub-activity '{sub_activity.name}': {str(sub_error)}")
+                # Get sub-activities count for logging
+                sub_activities = list(instance.sub_activities.all())
+                sub_activity_count = len(sub_activities)
                 
-                # Delete any legacy budget records
-                try:
-                    legacy_budgets = instance.legacy_budgets.all()
-                    for budget in legacy_budgets:
-                        print(f"Deleting legacy budget: {budget.id}")
-                        budget.delete()
-                except Exception as budget_error:
-                    print(f"Legacy budget deletion warning: {budget_error}")
+                # Clean up any ActivityBudget records that reference these sub-activities
+                if sub_activity_count > 0:
+                    logger.info(f"Cleaning up budget references for {sub_activity_count} sub-activities")
+                    for sub_activity in sub_activities:
+                        ActivityBudget.objects.filter(sub_activity_id=str(sub_activity.id)).delete()
                 
-                # Delete the main activity
+                # Clean up legacy budget records linked to main activity
+                legacy_budgets = ActivityBudget.objects.filter(activity=instance)
+                legacy_count = legacy_budgets.count()
+                if legacy_count > 0:
+                    logger.info(f"Deleting {legacy_count} legacy ActivityBudget records")
+                    legacy_budgets.delete()
+                
+                # Delete the main activity (this will cascade to sub-activities)
                 instance.delete()
                 print(f"Main activity {instance.id} deleted successfully")
             

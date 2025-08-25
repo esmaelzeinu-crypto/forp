@@ -471,136 +471,18 @@ class MainActivity(models.Model):
     @property
     def total_budget(self):
         """Calculate total budget from all sub-activities"""
-        return sum(sub.budget.estimated_cost for sub in self.sub_activities.all() if hasattr(sub, 'budget'))
+        return sum(sub.estimated_cost for sub in self.sub_activities.all())
     
     @property 
     def total_funding(self):
         """Calculate total funding from all sub-activities"""
-        total = 0
-        for sub in self.sub_activities.all():
-            if hasattr(sub, 'budget'):
-                total += (sub.budget.government_treasury + sub.budget.sdg_funding + 
-                         sub.budget.partners_funding + sub.budget.other_funding)
-        return total
+        return sum(sub.total_funding for sub in self.sub_activities.all())
     
     @property
     def funding_gap(self):
         """Calculate total funding gap from all sub-activities"""
         return max(0, self.total_budget - self.total_funding)
     
-    def clean(self):
-        super().clean()
-        
-        # Validate weight is positive
-        if self.weight <= 0:
-            raise ValidationError('Weight must be positive')
-        
-        # Validate period selection
-        if not self.selected_months and not self.selected_quarters:
-            raise ValidationError('At least one month or quarter must be selected')
-            
-        # Initialize empty arrays if fields are None
-        if self.selected_months is None:
-            self.selected_months = []
-        if self.selected_quarters is None:
-            self.selected_quarters = []
-        
-        # Validate targets based on target_type
-        if self.target_type == 'cumulative':
-            # Sum of quarterly targets should equal annual target
-            quarterly_sum = self.q1_target + self.q2_target + self.q3_target + self.q4_target
-            if quarterly_sum != self.annual_target:
-                raise ValidationError('For cumulative targets, sum of quarterly targets must equal annual target')
-        elif self.target_type == 'increasing':
-            # Q1 must equal baseline if baseline is set
-            if self.baseline and self.baseline.strip():
-                try:
-                    baseline_value = float(self.baseline)
-                    if not self.q1_target >= baseline_value:
-                        raise ValidationError(f'For increasing targets, Q1 target ({self.q1_target}) must equal or greater than baseline ({baseline_value})')
-                except ValueError:
-                    pass  # Skip validation if baseline is not a number
-            # Targets should be in ascending order
-            if not (self.q1_target <= self.q2_target <= self.q3_target <= self.q4_target):
-                raise ValidationError('For increasing targets, quarterly targets must be in ascending order (Q1 ≤ Q2 ≤ Q3 ≤ Q4)')
-            # Q4 must equal annual target
-            if self.q4_target != self.annual_target:
-                raise ValidationError('For increasing targets, Q4 target must equal annual target')
-        elif self.target_type == 'decreasing':
-            # Q1 must equal baseline if baseline is set
-            if self.baseline and self.baseline.strip():
-                try:
-                    baseline_value = float(self.baseline)
-                    if not self.q1_target <= baseline_value:
-                        raise ValidationError(f'For decreasing targets, Q1 target ({self.q1_target}) must equal or lessthan baseline ({baseline_value})')
-                except ValueError:
-                    pass  # Skip validation if baseline is not a number
-            # Targets should be in descending order
-            if not (self.q1_target >= self.q2_target >= self.q3_target >= self.q4_target):
-                raise ValidationError('For decreasing targets, quarterly targets must be in descending order (Q1 ≥ Q2 ≥ Q3 ≥ Q4)')
-            # Q4 must equal annual target
-            if self.q4_target != self.annual_target:
-                raise ValidationError('For decreasing targets, Q4 target must equal annual target')
-        elif self.target_type == 'constant':
-            # All quarterly targets must equal annual target
-            if not (self.q1_target == self.annual_target and self.q2_target == self.annual_target and 
-                   self.q3_target == self.annual_target and self.q4_target == self.annual_target):
-                raise ValidationError('For constant targets, all quarterly targets must equal annual target')
-        
-        
-        # FIXED: Validate activity weight against total for initiative (65% of initiative weight)
-        if self.initiative_id:
-            # Get other activities (exclude self if editing)
-            other_activities = MainActivity.objects.filter(
-                initiative=self.initiative_id
-            )
-            if self.pk:  # If editing, exclude current activity
-                other_activities = other_activities.exclude(pk=self.pk)
-            
-            other_activities_weight = other_activities.aggregate(
-                total=models.Sum('weight')
-            )['total'] or Decimal('0')
-            
-            # Calculate weight limits
-            initiative_weight = float(self.initiative.weight) if self.initiative else 100.0
-            max_allowed_weight = round(initiative_weight * 0.65, 2)
-            current_weight = float(self.weight)
-            total_weight_after = float(other_activities_weight) + current_weight
-            
-            if total_weight_after > max_allowed_weight:
-                raise ValidationError([
-                    f'Total weight of activities ({total_weight_after:.2f}%) cannot exceed {max_allowed_weight}% '
-                    f'(65% of initiative weight {initiative_weight}%). '
-                    f'Current other activities: {float(other_activities_weight):.2f}%, '
-                    f'Your activity: {current_weight:.2f}%'
-                ])
-        
-        # For custom activities, inherit the organization from the initiative if not set
-        if not self.organization and self.initiative and self.initiative.organization:
-            self.organization = self.initiative.organization
-    
-    def save(self, *args, **kwargs):
-        self.clean()
-        super().save(*args, **kwargs)
-    
-    def delete(self, using=None, keep_parents=False):
-        """Custom delete method to handle sub-activities and related objects properly"""
-        # Delete all sub-activities first (which will cascade to their budgets)
-        try:
-                sub_activity.delete()
-        except Exception as e:
-            print(f"Warning: Could not delete sub-activities for main activity {self.id}: {e}")
-        
-        # Delete any legacy budget records
-        try:
-            legacy_budgets = self.legacy_budgets.all()
-            for budget in legacy_budgets:
-                budget.delete()
-        except Exception as e:
-            print(f"Warning: Could not delete legacy budgets for main activity {self.id}: {e}")
-        
-        # Call parent delete
-        return super().delete(using=using, keep_parents=keep_parents)
     
     def __str__(self):
         return self.name
@@ -722,18 +604,6 @@ class SubActivity(models.Model):
                 f'Total funding ({self.total_funding}) cannot exceed estimated cost ({self.estimated_cost})'
             )
     
-    def delete(self, using=None, keep_parents=False):
-        """Custom delete method to handle related objects properly"""
-        # Delete related ActivityBudget if it exists
-        try:
-            if hasattr(self, 'budget') and self.budget:
-                self.budget.delete()
-        except Exception as e:
-            print(f"Warning: Could not delete related budget for sub-activity {self.id}: {e}")
-        
-        # Call parent delete
-        return super().delete(using=using, keep_parents=keep_parents)
-    
     def __str__(self):
         return f"{self.main_activity.name} - {self.name} ({self.activity_type})"
     
@@ -757,18 +627,20 @@ class ActivityBudget(models.Model):
         ('Other', 'Other')
     ]
 
-    sub_activity = models.OneToOneField(
-        'SubActivity',
-        on_delete=models.CASCADE,
-        related_name='budget',null=True,blank=True
-    )
-    # Keep activity field for backward compatibility during migration
+    # Keep activity field for legacy budget records
     activity = models.ForeignKey(
         'MainActivity',
         on_delete=models.CASCADE,
         related_name='legacy_budgets',
         null=True,
         blank=True
+    )
+    # Add reference field for tracking but not as foreign key to avoid constraints
+    sub_activity_id = models.CharField(
+        max_length=50,
+        null=True,
+        blank=True,
+        help_text="Reference to sub-activity ID for tracking purposes only"
     )
     budget_calculation_type = models.CharField(
         max_length=20,
@@ -849,12 +721,12 @@ class ActivityBudget(models.Model):
         super().save(*args, **kwargs)
 
     def __str__(self):
-        if self.sub_activity:
-            return f"Budget for {self.sub_activity.main_activity.name} - {self.sub_activity.name}"
-        elif self.activity:
+        if self.activity:
             return f"Budget for {self.activity.name} (Legacy)"
+        elif self.sub_activity_id:
+            return f"Budget for Sub-Activity {self.sub_activity_id}"
         else:
-            return "Budget (No Activity)"
+            return f"Budget Entry #{self.id}"
 
     @property
     def total_funding(self):

@@ -341,40 +341,6 @@ class MainActivitySerializer(serializers.ModelSerializer):
         # Let Django model clean() method handle all weight validation
         return data
 
-    def create(self, validated_data):
-        """Create with proper error handling"""
-        try:
-            return super().create(validated_data)
-        except DjangoValidationError as e:
-            # Convert Django validation errors to DRF format
-            raise serializers.ValidationError(e.messages)
-
-    def update(self, instance, validated_data):
-        """Update with proper error handling"""
-        try:
-            return super().update(instance, validated_data)
-        except DjangoValidationError as e:
-            # Convert Django validation errors to DRF format
-            raise serializers.ValidationError(e.messages)
-    
-    def delete(self, instance):
-        """Custom delete method for MainActivity"""
-        try:
-            # Delete all sub-activities first (cascade to their budgets)
-            sub_activities = instance.sub_activities.all()
-            for sub_activity in sub_activities:
-                sub_activity.delete()
-            
-            # Delete any legacy budget records
-            legacy_budgets = instance.legacy_budgets.all()
-            for budget in legacy_budgets:
-                budget.delete()
-            
-            # Delete the instance
-            instance.delete()
-            return True
-        except Exception as e:
-            raise serializers.ValidationError(f'Cannot delete main activity: {str(e)}')
 
 class ActivityBudgetSerializer(serializers.ModelSerializer):
     total_funding = serializers.SerializerMethodField()
@@ -384,7 +350,7 @@ class ActivityBudgetSerializer(serializers.ModelSerializer):
     class Meta:
         model = ActivityBudget
         fields = [
-            'id', 'activity', 'sub_activity', 'budget_calculation_type', 'activity_type',
+            'id', 'activity', 'sub_activity_id', 'budget_calculation_type', 'activity_type',
             'estimated_cost_with_tool', 'estimated_cost_without_tool',
             'government_treasury', 'sdg_funding', 'partners_funding', 'other_funding',
             'training_details', 'meeting_workshop_details', 'procurement_details',
