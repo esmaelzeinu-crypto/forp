@@ -703,6 +703,18 @@ class SubActivity(models.Model):
                 f'Total funding ({self.total_funding}) cannot exceed estimated cost ({self.estimated_cost})'
             )
     
+    def delete(self, using=None, keep_parents=False):
+        """Custom delete method to handle related objects properly"""
+        # Delete related ActivityBudget if it exists
+        try:
+            if hasattr(self, 'budget') and self.budget:
+                self.budget.delete()
+        except Exception as e:
+            print(f"Warning: Could not delete related budget for sub-activity {self.id}: {e}")
+        
+        # Call parent delete
+        return super().delete(using=using, keep_parents=keep_parents)
+    
     def __str__(self):
         return f"{self.main_activity.name} - {self.name} ({self.activity_type})"
     
