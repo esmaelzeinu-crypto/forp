@@ -207,7 +207,7 @@ const ActivityBudgetForm: React.FC<ActivityBudgetFormProps> = ({
         partners_funding: Number(calculatedPartnersFunding),
         other_funding: Number(data.other_funding || 0),
         
-        // Store tool-specific details and partners list
+        // Store tool-specific details
         partners_details: partners.length > 0 ? { partners_list: partners.filter(p => p.name && p.amount > 0) } : null,
         training_details: costingToolData?.training_details || data.training_details || initialData?.training_details,
         meeting_workshop_details: costingToolData?.meeting_workshop_details || data.meeting_workshop_details || initialData?.meeting_workshop_details,
@@ -216,12 +216,12 @@ const ActivityBudgetForm: React.FC<ActivityBudgetFormProps> = ({
         supervision_details: costingToolData?.supervision_details || data.supervision_details || initialData?.supervision_details
       };
 
-      console.log("Submitting SubActivity data:", budgetData);
+      console.log("Submitting SubActivity budget data:", budgetData);
 
       // Submit budget data to parent component for saving
       await onSubmit(budgetData);
       
-      console.log('Sub-activity with budget saved successfully');
+      console.log('Sub-activity budget saved successfully');
     } catch (error: any) {
       console.error('Error submitting budget form:', error);
       setError(error.message || 'Failed to save budget');
