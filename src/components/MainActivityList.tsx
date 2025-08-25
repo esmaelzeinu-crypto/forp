@@ -1117,4 +1117,78 @@ const MainActivityList: React.FC<MainActivityListProps> = ({
                   <div className="grid grid-cols-3 gap-2 text-sm">
                     <div className="text-center">
                       <div className="text-blue-600 font-medium">Required</div>
-                      <div className="text-blue-800 
+                      <div className="text-blue-800 font-bold">ETB {budgetRequired.toLocaleString()}</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-blue-600 font-medium">Available</div>
+                      <div className="text-blue-800 font-bold">ETB {totalFunding.toLocaleString()}</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-blue-600 font-medium">Gap</div>
+                      <div className={`font-bold ${fundingGap > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                        ETB {fundingGap.toLocaleString()}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+              <div className="flex justify-end mt-3">
+                {isUserPlanner ? (
+                  <div className="flex space-x-2">
+                    {onViewActivityBudget && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); onViewActivityBudget(activity); }}
+                        className="text-xs text-gray-600 hover:text-gray-800 flex items-center"
+                        title="View activity budget"
+                      >
+                        <Eye className="h-4 w-4 mr-1" />
+                        View Budget
+                      </button>
+                    )}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onEditActivity(activity); }}
+                      className="text-xs text-orange-600 hover:text-orange-800 flex items-center"
+                      title="Edit activity"
+                    >
+                      <Edit className="h-4 w-4 mr-1" />
+                      Edit
+                    </button>
+                    <button
+                      onClick={(e) => handleDeleteActivity(activity.id, activity.name, e)}
+                      disabled={deleteActivityMutation.isPending}
+                      className="text-xs text-red-600 hover:text-red-800 flex items-center disabled:opacity-50"
+                      title="Delete activity"
+                    >
+                      {deleteActivityMutation.isPending ? <Loader className="h-4 w-4 mr-1 animate-spin" /> : <Trash2 className="h-4 w-4 mr-1" />}
+                      Delete
+                    </button>
+                  </div>
+                ) : (
+                  <span className="text-xs text-gray-500 flex items-center">
+                    <Lock className="h-3 w-3 mr-1" />
+                    Read Only
+                  </span>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {isUserPlanner && (
+        <div className="mt-4 text-center">
+          <button
+            onClick={() => onEditActivity({} as MainActivity)}
+            disabled={remainingWeight <= 0}
+            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-orange-600 hover:bg-orange-700 disabled:opacity-50"
+            title="Create new main activity"
+          >
+            <PlusCircle className="h-4 w-4 mr-2" />
+            Create Main Activity
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default MainActivityList;
