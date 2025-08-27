@@ -715,6 +715,13 @@ const PlanSummary: React.FC = () => {
             <p className="text-sm text-gray-600 mt-1">
               Complete breakdown of objectives, initiatives, measures, and activities with budget details
             </p>
+            <div className="text-xs text-gray-500 mt-2">
+              <p>Plan Organization: {plan.organization_name} (ID: {plan.organization})</p>
+              <p>Objectives: {plan.objectives.length} | 
+                 Total Initiatives: {plan.objectives.reduce((sum: number, obj: any) => sum + (obj.initiatives?.length || 0), 0)} |
+                 Selected Objectives: {plan.selected_objectives?.length || 0}
+              </p>
+            </div>
           </div>
           
           <div className="p-6">

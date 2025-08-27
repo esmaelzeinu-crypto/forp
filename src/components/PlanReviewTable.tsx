@@ -218,17 +218,30 @@ const PlanReviewTable: React.FC<PlanReviewTableProps> = ({
           if (!initiative) return false;
 
           // Only include initiatives that belong to the planner's organization
-          // Include initiatives that belong to the plan's organization (for viewing)
-          // OR planner's organization (for editing)
-          const belongsToTargetOrg = plannerOrgId && initiative.organization &&
-                                    Number(initiative.organization) === Number(plannerOrgId);
-
-          // Also include default initiatives (they belong to Ministry of Health)
+          // CRITICAL FIX: More flexible initiative filtering for admin viewing
           const isDefaultInitiative = initiative.is_default === true;
+          
+          // For plan viewing (especially by admins), be more inclusive
+          let belongsToTargetOrg = false;
+          
+          if (plannerOrgId && initiative.organization) {
+            belongsToTargetOrg = Number(initiative.organization) === Number(plannerOrgId);
+          }
+          
+          // FALLBACK: If no organization is set on initiative, include it for plan viewing
+          const hasNoOrgSet = !initiative.organization || initiative.organization === null;
+          
+          // For admin viewing, be more permissive - include if:
+          // 1. It's a default initiative, OR
+          // 2. It belongs to the target organization, OR  
+          // 3. It has no organization set (legacy data), OR
+          // 4. We're in view-only mode (admin viewing)
+          const shouldInclude = isDefaultInitiative || belongsToTargetOrg || (isViewOnly && hasNoOrgSet);
 
-          console.log(`Initiative ${initiative.name}: belongsToTargetOrg=${belongsToTargetOrg}, isDefault=${isDefaultInitiative}, org=${initiative.organization}, targetOrg=${plannerOrgId}`);
 
-          return belongsToTargetOrg || isDefaultInitiative;
+          console.log(`Initiative ${initiative.name}: isDefault=${isDefaultInitiative}, belongsToTargetOrg=${belongsToTargetOrg}, hasNoOrg=${hasNoOrgSet}, isViewOnly=${isViewOnly}, shouldInclude=${shouldInclude}, org=${initiative.organization}, targetOrg=${plannerOrgId}`);
+
+          return shouldInclude;
         });
 
         console.log(`Objective ${objective.title}: ${objective.initiatives?.length || 0} total initiatives, ${relevantInitiatives.length} for target org`);
@@ -265,24 +278,39 @@ const PlanReviewTable: React.FC<PlanReviewTableProps> = ({
         relevantInitiatives.forEach((initiative) => {
           if (!initiative) return;
 
-          // CRITICAL FIX: Process performance measures and activities for the target organization
-          // (plan's organization when viewing, planner's organization when editing)
+          // CRITICAL FIX: More flexible filtering for performance measures and activities
           const performanceMeasures = (initiative.performance_measures || []).filter(measure => {
             if (!measure) return false;
-            const belongsToTargetOrg = plannerOrgId && measure.organization &&
-                                      Number(measure.organization) === Number(plannerOrgId);
-            // Include measures that belong to target organization or have no organization
+            
+            // For admin viewing, be more inclusive
+            let belongsToTargetOrg = false;
+            if (plannerOrgId && measure.organization) {
+              belongsToTargetOrg = Number(measure.organization) === Number(plannerOrgId);
+            }
+            
+            // Include measures that belong to target organization, have no organization, or we're viewing
             const hasNoOrg = !measure.organization || measure.organization === null;
-            return belongsToTargetOrg || hasNoOrg;
+            const shouldInclude = belongsToTargetOrg || hasNoOrg || isViewOnly;
+            
+            console.log(`Performance measure "${measure.name}": org=${measure.organization}, targetOrg=${plannerOrgId}, hasNoOrg=${hasNoOrg}, isViewOnly=${isViewOnly}, shouldInclude=${shouldInclude}`);
+            return shouldInclude;
           });
 
           const mainActivities = (initiative.main_activities || []).filter(activity => {
             if (!activity) return false;
-            const belongsToTargetOrg = plannerOrgId && activity.organization &&
-                                      Number(activity.organization) === Number(plannerOrgId);
-            // Include activities that belong to target organization or have no organization
+            
+            // For admin viewing, be more inclusive
+            let belongsToTargetOrg = false;
+            if (plannerOrgId && activity.organization) {
+              belongsToTargetOrg = Number(activity.organization) === Number(plannerOrgId);
+            }
+            
+            // Include activities that belong to target organization, have no organization, or we're viewing
             const hasNoOrg = !activity.organization || activity.organization === null;
-            return belongsToTargetOrg || hasNoOrg;
+            const shouldInclude = belongsToTargetOrg || hasNoOrg || isViewOnly;
+            
+            console.log(`Main activity "${activity.name}": org=${activity.organization}, targetOrg=${plannerOrgId}, hasNoOrg=${hasNoOrg}, isViewOnly=${isViewOnly}, shouldInclude=${shouldInclude}`);
+            return shouldInclude;
           });
 
           const allItems = [...performanceMeasures, ...mainActivities];
