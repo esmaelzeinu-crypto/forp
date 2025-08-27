@@ -217,8 +217,23 @@ const PlanReviewTable: React.FC<PlanReviewTableProps> = ({
         const relevantInitiatives = (objective.initiatives || []);
 
         console.log(`Objective ${objective.title}: ${objective.initiatives?.length || 0} total initiatives, ${relevantInitiatives.length} for target org`);
-          // SIMPLE ADMIN FIX: If plannerOrgId is null (admin mode), show ALL
-          console.log(`PlanReviewTable: Initiative "${initiative.name}" - plannerOrgId=${plannerOrgId}, isViewOnly=${isViewOnly}`);
+        
+        if (relevantInitiatives.length === 0) {
+          exportData.push({
+            No: (objIndex + 1).toString(),
+            'Strategic Objective': objective.title || 'Untitled Objective',
+            'Strategic Objective Weight': `${objectiveWeight.toFixed(1)}%`,
+            'Strategic Initiative': 'No initiatives available',
+            'Initiative Weight': '-',
+            'Performance Measure/Main Activity': 'No data',
+            'Weight': '-',
+            'Baseline': '-',
+            'Q1Target': '-',
+            'Q2Target': '-',
+            'SixMonthTarget': '-',
+            'Q3Target': '-',
+            'Q4Target': '-',
+            'AnnualTarget': '-',
             'Implementor': organizationName,
             'BudgetRequired': '-',
             'Government': '-',
@@ -239,16 +254,46 @@ const PlanReviewTable: React.FC<PlanReviewTableProps> = ({
           const performanceMeasures = (initiative.performance_measures || []).filter(measure => {
             if (!measure) return false;
             
-            // SIMPLE FIX: Show ALL performance measures for admin
-            console.log(`PlanReviewTable: Performance measure "${measure.name}" included`);
+            // ADMIN FIX: Show ALL performance measures when viewing without plannerOrgId
+            if (isViewOnly && !plannerOrgId) {
+              console.log(`ADMIN VIEW (no org filter): Including ALL measure "${measure.name}"`);
+              return true;
+            }
+            
+            // For regular viewing with plannerOrgId, apply filtering  
+            if (plannerOrgId) {
+              const belongsToTargetOrg = measure.organization && Number(measure.organization) === Number(plannerOrgId);
+              const hasNoOrg = !measure.organization || measure.organization === null;
+              const shouldInclude = belongsToTargetOrg || hasNoOrg;
+              
+              console.log(`FILTERED VIEW: Measure "${measure.name}": belongsToOrg=${belongsToTargetOrg}, hasNoOrg=${hasNoOrg}, include=${shouldInclude}`);
+              return shouldInclude;
+            }
+            
+            // Default: show all
             return true;
           });
 
           const mainActivities = (initiative.main_activities || []).filter(activity => {
             if (!activity) return false;
             
-            // SIMPLE FIX: Show ALL main activities for admin
-            console.log(`PlanReviewTable: Main activity "${activity.name}" included`);
+            // ADMIN FIX: Show ALL main activities when viewing without plannerOrgId
+            if (isViewOnly && !plannerOrgId) {
+              console.log(`ADMIN VIEW (no org filter): Including ALL activity "${activity.name}"`);
+              return true;
+            }
+            
+            // For regular viewing with plannerOrgId, apply filtering
+            if (plannerOrgId) {
+              const belongsToTargetOrg = activity.organization && Number(activity.organization) === Number(plannerOrgId);
+              const hasNoOrg = !activity.organization || activity.organization === null;
+              const shouldInclude = belongsToTargetOrg || hasNoOrg;
+              
+              console.log(`FILTERED VIEW: Activity "${activity.name}": belongsToOrg=${belongsToTargetOrg}, hasNoOrg=${hasNoOrg}, include=${shouldInclude}`);
+              return shouldInclude;
+            }
+            
+            // Default: show all
             return true;
           });
 
@@ -287,11 +332,11 @@ const PlanReviewTable: React.FC<PlanReviewTableProps> = ({
               if (!item) return;
 
               const isPerformanceMeasure = performanceMeasures.includes(item);
-                // Get selected months for each quarter with enhanced matching
-                const q1Months = getSelectedMonthsForQuarter(item, 'Q1');
-                const q2Months = getSelectedMonthsForQuarter(item, 'Q2');
-                const q3Months = getSelectedMonthsForQuarter(item, 'Q3');
-                const q4Months = getSelectedMonthsForQuarter(item, 'Q4');
+              // Get selected months for each quarter with enhanced matching
+              const q1Months = getSelectedMonthsForQuarter(item, 'Q1');
+              const q2Months = getSelectedMonthsForQuarter(item, 'Q2');
+              const q3Months = getSelectedMonthsForQuarter(item, 'Q3');
+              const q4Months = getSelectedMonthsForQuarter(item, 'Q4');
 
               let budgetRequired = 0;
               let government = 0;
