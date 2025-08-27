@@ -226,7 +226,7 @@ const AdminPlanSummary: React.FC = () => {
           plan.objectives = validObjectives;
         }
         
-        console.log('AdminPlanSummary: User authenticated, proceeding to plan view');
+        console.log('AdminPlanSummary: Final plan data assembled with', plan.objectives?.length, 'objectives');
         
         return plan;
       } catch (error) {
@@ -249,7 +249,11 @@ const AdminPlanSummary: React.FC = () => {
     let activitiesCount = 0;
     let measuresCount = 0;
 
+    console.log('AdminPlanSummary: Starting budget calculation for plan:', plan?.id);
+    console.log('AdminPlanSummary: Plan objectives:', plan?.objectives?.length || 0);
+
     if (!plan?.objectives) {
+      console.log('AdminPlanSummary: No objectives found in plan data');
       return {
         totalRequired: 0,
         totalAllocated: 0,
@@ -264,23 +268,37 @@ const AdminPlanSummary: React.FC = () => {
     }
 
     plan.objectives.forEach((objective: any) => {
+      console.log(`AdminPlanSummary: Processing objective "${objective.title}" with ${objective.initiatives?.length || 0} initiatives`);
       if (!objective.initiatives) return;
       
       objective.initiatives.forEach((initiative: any) => {
-        if (!initiative) return;
+        if (!initiative) {
+          console.log('AdminPlanSummary: Skipping null initiative');
+          return;
+        }
+        
+        console.log(`AdminPlanSummary: Processing initiative "${initiative.name}"`);
         
         // Count measures
         if (initiative.performance_measures) {
+          console.log(`AdminPlanSummary: Initiative "${initiative.name}" has ${initiative.performance_measures.length} performance measures`);
           measuresCount += initiative.performance_measures.length;
+        } else {
+          console.log(`AdminPlanSummary: Initiative "${initiative.name}" has no performance_measures array`);
         }
         
         // Count and process activities
         if (initiative.main_activities) {
+          console.log(`AdminPlanSummary: Initiative "${initiative.name}" has ${initiative.main_activities.length} main activities`);
           activitiesCount += initiative.main_activities.length;
           
           initiative.main_activities.forEach((activity: any) => {
+            console.log(`AdminPlanSummary: Processing activity "${activity.name}"`);
+            
             // Get budget from sub-activities
             if (activity.sub_activities && activity.sub_activities.length > 0) {
+              console.log(`AdminPlanSummary: Activity "${activity.name}" has ${activity.sub_activities.length} sub-activities`);
+              
               activity.sub_activities.forEach((subActivity: any) => {
                 const cost = subActivity.budget_calculation_type === 'WITH_TOOL'
                   ? Number(subActivity.estimated_cost_with_tool || 0)
@@ -291,8 +309,12 @@ const AdminPlanSummary: React.FC = () => {
                 sdgFunding += Number(subActivity.sdg_funding || 0);
                 partnersFunding += Number(subActivity.partners_funding || 0);
                 otherFunding += Number(subActivity.other_funding || 0);
+                
+                console.log(`AdminPlanSummary: Sub-activity "${subActivity.name}": Cost=${cost}, Gov=${subActivity.government_treasury}, SDG=${subActivity.sdg_funding}`);
               });
             } else if (activity.budget) {
+              console.log(`AdminPlanSummary: Activity "${activity.name}" has legacy budget`);
+              
               // Legacy budget
               const cost = activity.budget.budget_calculation_type === 'WITH_TOOL'
                 ? Number(activity.budget.estimated_cost_with_tool || 0)
@@ -303,8 +325,14 @@ const AdminPlanSummary: React.FC = () => {
               sdgFunding += Number(activity.budget.sdg_funding || 0);
               partnersFunding += Number(activity.budget.partners_funding || 0);
               otherFunding += Number(activity.budget.other_funding || 0);
+              
+              console.log(`AdminPlanSummary: Legacy budget for "${activity.name}": Cost=${cost}, Gov=${activity.budget.government_treasury}`);
+            } else {
+              console.log(`AdminPlanSummary: Activity "${activity.name}" has no budget data`);
             }
           });
+        } else {
+          console.log(`AdminPlanSummary: Initiative "${initiative.name}" has no main_activities array`);
         }
       });
     });
@@ -312,6 +340,19 @@ const AdminPlanSummary: React.FC = () => {
     const totalAllocated = governmentTreasury + sdgFunding + partnersFunding + otherFunding;
     const fundingGap = Math.max(0, totalRequired - totalAllocated);
 
+    const summary = {
+      totalRequired,
+      totalAllocated,
+      fundingGap,
+      governmentTreasury,
+      sdgFunding,
+      partnersFunding,
+      otherFunding,
+      activitiesCount,
+      measuresCount
+    };
+
+    console.log('AdminPlanSummary: Final budget summary:', summary);
     return {
       totalRequired,
       totalAllocated,
