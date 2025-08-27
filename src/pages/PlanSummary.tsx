@@ -16,7 +16,6 @@ const PlanSummary: React.FC = () => {
   const [userOrgId, setUserOrgId] = useState<number | null>(null);
   const [isUserEvaluator, setIsUserEvaluator] = useState(false);
   const [isUserAdmin, setIsUserAdmin] = useState(false);
-  const [planOrgId, setPlanOrgId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Get user data and permissions
@@ -62,12 +61,6 @@ const PlanSummary: React.FC = () => {
         }
         
         const planData = response.data;
-        
-        // Store the plan's organization ID for proper filtering
-        if (planData.organization) {
-          setPlanOrgId(Number(planData.organization));
-          console.log('PlanSummary: Plan organization ID set to:', planData.organization);
-        }
       
         // Apply planner's selected objective weights if they exist
         if (planData.objectives && planData.selected_objectives_weights) {
@@ -735,8 +728,7 @@ const PlanSummary: React.FC = () => {
               toDate={plan.to_date || ''}
               planType={plan.type || 'LEO/EO Plan'}
               isViewOnly={true}
-              plannerOrgId={isUserAdmin ? planOrgId : userOrgId}
-              isAdminView={isUserAdmin}
+              plannerOrgId={userOrgId}
             />
           </div>
         </div>
