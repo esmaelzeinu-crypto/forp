@@ -67,6 +67,7 @@ interface PlanReviewTableProps {
   isPreviewMode?: boolean;
   plannerOrgId?: number | null;
   isViewOnly?: boolean;
+  isAdminView?: boolean;
 }
 
 const PlanReviewTable: React.FC<PlanReviewTableProps> = ({
@@ -80,7 +81,8 @@ const PlanReviewTable: React.FC<PlanReviewTableProps> = ({
   planType,
   isPreviewMode = false,
   plannerOrgId = null,
-  isViewOnly = false
+  isViewOnly = false,
+  isAdminView = false
 }) => {
   const { t } = useLanguage();
   const [organizationsMap, setOrganizationsMap] = useState<Record<string, string>>({});
@@ -213,22 +215,29 @@ const PlanReviewTable: React.FC<PlanReviewTableProps> = ({
 
         // Filter initiatives by planner organization ID
         const plannerInitiatives = (objective.initiatives || []).filter(initiative => {
+        // CRITICAL FIX: For admin view, show all initiatives; for regular users, filter by organization
+        const plannerInitiatives = (objective.initiatives || []).filter(initiative => {
           if (!initiative) return false;
-
-          // Only include initiatives that belong to the planner's organization
-          // Exclude initiatives with no organization
+          
+          // ADMIN VIEW: Show all initiatives regardless of organization
+          if (isAdminView) {
+            console.log(`Admin view: Including initiative "${initiative.name}" from org ${initiative.organization}`);
+            return true;
+          }
+          
+          // REGULAR USER VIEW: Filter by planner's organization
           const belongsToPlannerOrg = plannerOrgId && initiative.organization &&
                                     Number(initiative.organization) === Number(plannerOrgId);
-
+          
           // Also include default initiatives (they belong to Ministry of Health)
           const isDefaultInitiative = initiative.is_default === true;
-
-          console.log(`Initiative ${initiative.name}: belongsToPlannerOrg=${belongsToPlannerOrg}, isDefault=${isDefaultInitiative}, org=${initiative.organization}, plannerOrg=${plannerOrgId}`);
-
+          
+          console.log(`Regular view - Initiative ${initiative.name}: belongsToPlannerOrg=${belongsToPlannerOrg}, isDefault=${isDefaultInitiative}, org=${initiative.organization}, plannerOrg=${plannerOrgId}`);
+          
           return belongsToPlannerOrg || isDefaultInitiative;
         });
 
-        console.log(`Objective ${objective.title}: ${objective.initiatives?.length || 0} total initiatives, ${plannerInitiatives.length} for planner org`);
+        console.log(`Objective ${objective.title}: ${objective.initiatives?.length || 0} total initiatives, ${plannerInitiatives.length} for ${isAdminView ? 'admin view (all)' : 'planner org'}`);
 
         if (plannerInitiatives.length === 0) {
           exportData.push({
@@ -263,8 +272,17 @@ const PlanReviewTable: React.FC<PlanReviewTableProps> = ({
           if (!initiative) return;
 
           // Process performance measures and activities for planner's organization
+          // CRITICAL FIX: For admin view, show all measures and activities; for regular users, filter by organization
           const performanceMeasures = (initiative.performance_measures || []).filter(measure => {
             if (!measure) return false;
+            
+            // ADMIN VIEW: Show all performance measures
+            if (isAdminView) {
+              console.log(`Admin view: Including performance measure "${measure.name}" from org ${measure.organization}`);
+              return true;
+            }
+            
+            // REGULAR USER VIEW: Filter by planner's organization
             const belongsToPlannerOrg = plannerOrgId && measure.organization &&
                                       Number(measure.organization) === Number(plannerOrgId);
             // Only include measures that belong to planner's organization or have no organization
@@ -274,12 +292,20 @@ const PlanReviewTable: React.FC<PlanReviewTableProps> = ({
 
           const mainActivities = (initiative.main_activities || []).filter(activity => {
             if (!activity) return false;
+            
+            // ADMIN VIEW: Show all main activities
+            if (isAdminView) {
+              console.log(`Admin view: Including main activity "${activity.name}" from org ${activity.organization}`);
+              return true;
+            }
+            
+            // REGULAR USER VIEW: Filter by planner's organization
             const belongsToPlannerOrg = plannerOrgId && activity.organization &&
                                       Number(activity.organization) === Number(plannerOrgId);
             // Only include activities that belong to planner's organization or have no organization
             const hasNoOrg = !activity.organization || activity.organization === null;
             return belongsToPlannerOrg || hasNoOrg;
-          });
+          });</action>
 
           const allItems = [...performanceMeasures, ...mainActivities];
 
@@ -917,10 +943,15 @@ const PlanReviewTable: React.FC<PlanReviewTableProps> = ({
                 Processing...
               </>
             ) : (
-              <>
+            {plannerOrgId && !isAdminView && (
                 <Send className="h-5 w-5 mr-2" />
                 Submit Plan
               </>
+            )}
+            {isAdminView && (
+              <span className="block mt-1">
+                Admin View: Showing all data across organizations
+              </span>
             )}
           </button>
         </div>
