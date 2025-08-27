@@ -235,28 +235,9 @@ const PlanReviewTable: React.FC<PlanReviewTableProps> = ({
         if (relevantInitiatives.length === 0) {
           exportData.push({
             No: (objIndex + 1).toString(),
-            'Strategic Objective': objective.title || 'Untitled Objective',
-            'Strategic Objective Weight': `${objectiveWeight.toFixed(1)}%`,
-            'Strategic Initiative': 'No initiatives',
-            'Initiative Weight': '-',
-            'Performance Measure/Main Activity': 'No measures or activities',
-            'Weight': '-',
-            'Baseline': '-',
-            'Q1Target': '-',
-            'Q2Target': '-',
-            'SixMonthTarget': '-',
-            'Q3Target': '-',
-            'Q4Target': '-',
-            'AnnualTarget': '-',
-            'Implementor': organizationName,
-            'BudgetRequired': '-',
-            'Government': '-',
-            'Partners': '-',
-            'SDG': '-',
-            'Other': '-',
-            'TotalAvailable': '-',
-            'Gap': '-',
-          });
+          // Use main activities as-is since AdminPlanSummary already filtered them
+          const mainActivities = initiative.main_activities || [];
+          console.log(`PlanReviewTable: Initiative "${initiative.name}" has ${mainActivities.length} main activities (pre-filtered)`);</action>
           objectiveAdded = true;
           return;
         }
@@ -264,29 +245,9 @@ const PlanReviewTable: React.FC<PlanReviewTableProps> = ({
         relevantInitiatives.forEach((initiative) => {
           if (!initiative) return;
 
-          // CRITICAL FIX: More flexible filtering for performance measures and activities
-          const performanceMeasures = (initiative.performance_measures || []).filter(measure => {
-            if (!measure) return false;
-            
-            // ADMIN FIX: Performance measures are already filtered by AdminPlanSummary
-            console.log(`PlanReviewTable: Including measure "${measure.name}" (pre-filtered)`);
-            return true;
-          });
-
-          const mainActivities = (initiative.main_activities || []).filter(activity => {
-            if (!activity) return false;
-            
-            // ADMIN FIX: Main activities are already filtered by AdminPlanSummary
-            console.log(`PlanReviewTable: Including activity "${activity.name}" (pre-filtered)`);
-            return true;
-          });
-
-          const allItems = [...performanceMeasures, ...mainActivities];
-
-          if (allItems.length === 0) {
-            exportData.push({
-              No: objectiveAdded ? '' : (objIndex + 1).toString(),
-              'Strategic Objective': objectiveAdded ? '' : (objective.title || 'Untitled Objective'),
+          // Use performance measures as-is since AdminPlanSummary already filtered them
+          const performanceMeasures = initiative.performance_measures || [];
+          console.log(`PlanReviewTable: Initiative "${initiative.name}" has ${performanceMeasures.length} performance measures (pre-filtered)`);
               'Strategic Objective Weight': objectiveAdded ? '' : `${objectiveWeight.toFixed(1)}%`,
               'Strategic Initiative': initiative.name || 'Untitled Initiative',
               'Initiative Weight': `${initiative.weight || 0}%`,

@@ -110,64 +110,75 @@ const AdminPlanSummary: React.FC = () => {
                     initiatives: []
                   };
                 }
-                    // Get performance measures for this initiative that belong to the PLAN'S organization
-                // For each initiative, get ALL its data
-                const completeInitiatives = await Promise.all(
-                  planOrgInitiatives.map(async (initiative: any) => {
-                    const allMeasures = measuresResponse.data?.results || measuresResponse.data || [];
-                    
-                    // Filter measures by plan organization
-                    const planOrgMeasures = allMeasures.filter((measure: any) => {
-                      const belongsToPlanOrg = measure.organization && Number(measure.organization) === Number(plan.organization);
-                      const hasNoOrg = !measure.organization;
-                      const shouldInclude = belongsToPlanOrg || hasNoOrg;
+                    try {
+                      // Get ALL performance measures for this initiative
+                      const measuresResponse = await api.get('/performance-measures/', {
+                        params: { initiative: initiative.id }
+                      });
+                      const allMeasures = measuresResponse.data?.results || measuresResponse.data || [];
                       
-                      console.log(`AdminPlanSummary: Measure "${measure.name}": belongsToPlan=${belongsToPlanOrg}, hasNoOrg=${hasNoOrg}, include=${shouldInclude}`);
-                      return shouldInclude;
-                    });
-                    
-                    // Get main activities for this initiative that belong to the PLAN'S organization
-                    const measuresResp = await api.get(`/performance-measures/?initiative=${initiative.id}`);
-                    const allMeasures = measuresResp.data?.results || measuresResp.data || [];
-                    
-                    const allActivities = activitiesResponse.data?.results || activitiesResponse.data || [];
-                    
-                    // Filter activities by plan organization
-                    const planOrgActivities = allActivities.filter((activity: any) => {
-                      const belongsToPlanOrg = activity.organization && Number(activity.organization) === Number(plan.organization);
-                      const hasNoOrg = !activity.organization;
-                      const shouldInclude = belongsToPlanOrg || hasNoOrg;
+                      // Filter measures by plan organization
+                      const planOrgMeasures = allMeasures.filter((measure: any) => {
+                        const belongsToPlanOrg = measure.organization && Number(measure.organization) === Number(plan.organization);
+                        const hasNoOrg = !measure.organization;
+                        const isDefault = measure.is_default === true;
+                        const shouldInclude = isDefault || belongsToPlanOrg || hasNoOrg;
+                        
+                        console.log(`AdminPlanSummary: Measure "${measure.name}": belongsToPlan=${belongsToPlanOrg}, hasNoOrg=${hasNoOrg}, isDefault=${isDefault}, include=${shouldInclude}`);
+                        return shouldInclude;
+                      });
                       
-                      console.log(`AdminPlanSummary: Activity "${activity.name}": belongsToPlan=${belongsToPlanOrg}, hasNoOrg=${hasNoOrg}, include=${shouldInclude}`);
-                      return shouldInclude;
-                    });
-                    const activitiesResp = await api.get(`/main-activities/?initiative=${initiative.id}`);
-                    console.log(`AdminPlanSummary: Initiative "${initiative.name}": ${planOrgMeasures.length} measures, ${planOrgActivities.length} activities for plan org ${plan.organization}`);
+                      // Get ALL main activities for this initiative  
+                      const activitiesResponse = await api.get('/main-activities/', {
+                        params: { initiative: initiative.id }
+                      });
+                      const allActivities = activitiesResponse.data?.results || activitiesResponse.data || [];
+                      
+                      // Filter activities by plan organization
+                      const planOrgActivities = allActivities.filter((activity: any) => {
+                        const belongsToPlanOrg = activity.organization && Number(activity.organization) === Number(plan.organization);
+                        const hasNoOrg = !activity.organization;
+                        const isDefault = activity.is_default === true;
+                        const shouldInclude = isDefault || belongsToPlanOrg || hasNoOrg;
+                        
+                        console.log(`AdminPlanSummary: Activity "${activity.name}": belongsToPlan=${belongsToPlanOrg}, hasNoOrg=${hasNoOrg}, isDefault=${isDefault}, include=${shouldInclude}`);
+                        return shouldInclude;
+                      });
                     
-                    // For each activity, get sub-activities
-                    const activitiesWithSubs = await Promise.all(
-                      planOrgActivities.map(async (activity: any) => {
-                        try {
-                          const subResp = await api.get(`/sub-activities/?main_activity=${activity.id}`);
-                          const subs = subResp.data?.results || subResp.data || [];
-                          
-                          return { ...activity, sub_activities: subs };
-                        } catch (error) {
-                          console.error(`Error getting subs for activity ${activity.id}:`, error);
-                          return { ...activity, sub_activities: [] };
-                        }
-                      })
-                    );
+                      console.log(`AdminPlanSummary: Initiative "${initiative.name}": ${planOrgMeasures.length} measures, ${planOrgActivities.length} activities for plan org ${plan.organization}`);
                     
-                    console.log(`AdminPlanSummary: Initiative "${initiative.name}" complete: ${allMeasures.length} measures, ${activitiesWithSubs.length} activities`);
-                    
-                    return {
-                      ...initiative,
-                      performance_measures: planOrgMeasures,
-                      main_activities: activitiesWithSubs
-                    };
+                      // For each activity, get sub-activities
+                      const activitiesWithSubs = await Promise.all(
+                        planOrgActivities.map(async (activity: any) => {
+                          try {
+                            const subResp = await api.get(`/sub-activities/?main_activity=${activity.id}`);
+                            const subs = subResp.data?.results || subResp.data || [];
+                            
+                            return { ...activity, sub_activities: subs };
+                          } catch (error) {
+                            console.error(`Error getting subs for activity ${activity.id}:`, error);
+                            return { ...activity, sub_activities: [] };
+                          }
+                        })
+                      );
+                      
+                      console.log(`AdminPlanSummary: Initiative "${initiative.name}" complete: ${planOrgMeasures.length} measures, ${activitiesWithSubs.length} activities`);
+                      
+                      return {
+                        ...initiative,
+                        performance_measures: planOrgMeasures,
+                        main_activities: activitiesWithSubs
+                      };
+                    } catch (error) {
+                      console.error(`AdminPlanSummary: Error processing initiative ${initiative.id}:`, error);
+                      return {
+                        ...initiative,
+                        performance_measures: [],
+                        main_activities: []
+                      };
+                    }
                   })
-                );
+                );</action>
                 
                 // CRITICAL: Make sure we return the objective with the processed initiatives
                 return {
@@ -205,9 +216,7 @@ const AdminPlanSummary: React.FC = () => {
           plan.objectives = validObjectives;
         }
         
-        // REMOVED: Don't check admin permissions for plan viewing
-        // Admin should be able to view any plan details
-        console.log('AdminPlanSummary: User authenticated, proceeding without role restrictions');
+        console.log('AdminPlanSummary: User authenticated, proceeding to plan view');
         
         return plan;
       } catch (error) {
