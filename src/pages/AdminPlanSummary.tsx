@@ -1,12 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, FileSpreadsheet, Download, Building2, User, Calendar, FileType, Target, Activity, DollarSign, AlertCircle, Info, Loader, CheckCircle } from 'lucide-react';
+import { ArrowLeft, Building2, User, Calendar, FileType, Target, Activity, DollarSign, AlertCircle, Info, Loader, CheckCircle } from 'lucide-react';
 import { useLanguage } from '../lib/i18n/LanguageContext';
-import { plans, auth, api } from '../lib/api';
+import { auth, api } from '../lib/api';
 import { format } from 'date-fns';
 import PlanReviewTable from '../components/PlanReviewTable';
-import { exportToExcel, exportToPDF } from '../lib/utils/export';
 
 const AdminPlanSummary: React.FC = () => {
   const { planId } = useParams<{ planId: string }>();
@@ -14,152 +13,114 @@ const AdminPlanSummary: React.FC = () => {
   const { t } = useLanguage();
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch plan details with complete data for admin viewing
+  // SIMPLE ADMIN PLAN FETCH - NO RESTRICTIONS
   const { data: planData, isLoading, error: planError } = useQuery({
-    queryKey: ['admin-plan', planId],
+    queryKey: ['admin-plan-complete', planId],
     queryFn: async () => {
       if (!planId) throw new Error('Plan ID is required');
       
+      console.log('AdminPlanSummary: Starting simple admin fetch for plan:', planId);
+      
       try {
-        console.log('AdminPlanSummary: Fetching plan details for ID:', planId);
-        
-        // Fetch the plan
+        // Step 1: Get basic plan data
         const planResponse = await api.get(`/plans/${planId}/`);
-        console.log('AdminPlanSummary: Plan data received:', planResponse.data);
-        
-        if (!planResponse.data) {
-          throw new Error('Plan data not found');
-        }
-        
         const plan = planResponse.data;
         
-        // ADMIN FIX: Fetch complete data without any organization restrictions
-        if (plan.selected_objectives && Array.isArray(plan.selected_objectives) && plan.selected_objectives.length > 0) {
-          console.log('AdminPlanSummary: Fetching complete objectives for plan organization:', plan.organization);
-          
-          try {
-            // Fetch each selected objective with complete data
-            const enrichedObjectives = await Promise.all(
-              plan.selected_objectives.map(async (objId: number) => {
-                console.log(`AdminPlanSummary: Fetching objective ${objId}`);
+        if (!plan) throw new Error('Plan not found');
+        
+        console.log('AdminPlanSummary: Plan fetched:', plan.organization_name || plan.organization);
+        console.log('AdminPlanSummary: Selected objectives:', plan.selected_objectives?.length || 0);
+        
+        // Step 2: Get ALL objectives for this plan without any filtering
+        if (plan.selected_objectives && plan.selected_objectives.length > 0) {
+          const objectivesData = await Promise.all(
+            plan.selected_objectives.map(async (objId: number) => {
+              try {
+                console.log(`AdminPlanSummary: Processing objective ${objId}`);
                 
-                // Get objective basic data
-                const objResponse = await api.get(`/strategic-objectives/${objId}/`);
-                const objective = objResponse.data;
+                // Get objective
+                const objResp = await api.get(`/strategic-objectives/${objId}/`);
+                const objective = objResp.data;
                 
-                if (!objective) return null;
+                // Get ALL initiatives for this objective
+                const initResp = await api.get(`/strategic-initiatives/?strategic_objective=${objId}`);
+                const allInitiatives = initResp.data?.results || initResp.data || [];
                 
-                console.log(`AdminPlanSummary: Processing objective "${objective.title}" with ${objective.initiatives?.length || 0} initiatives`);
+                console.log(`AdminPlanSummary: Objective "${objective.title}" has ${allInitiatives.length} initiatives`);
                 
-                // Get ALL initiatives for this objective without any filtering
-                const initiativesResponse = await api.get('/strategic-initiatives/', {
-                  params: { strategic_objective: objId }
-                });
-                const allInitiatives = initiativesResponse.data?.results || initiativesResponse.data || [];
-                
-                console.log(`AdminPlanSummary: Found ${allInitiatives.length} total initiatives for objective ${objId}`);
-                
-                // Process each initiative with complete data
-                const processedInitiatives = await Promise.all(
+                // For each initiative, get ALL its data
+                const completeInitiatives = await Promise.all(
                   allInitiatives.map(async (initiative: any) => {
-                    console.log(`AdminPlanSummary: Processing initiative "${initiative.name}" (ID: ${initiative.id})`);
+                    console.log(`AdminPlanSummary: Processing initiative "${initiative.name}"`);
                     
-                    // Get ALL performance measures for this initiative without filtering
-                    const measuresResponse = await api.get('/performance-measures/', {
-                      params: { initiative: initiative.id }
-                    });
-                    const measures = measuresResponse.data?.results || measuresResponse.data || [];
+                    // Get ALL performance measures
+                    const measuresResp = await api.get(`/performance-measures/?initiative=${initiative.id}`);
+                    const allMeasures = measuresResp.data?.results || measuresResp.data || [];
                     
-                    // Get ALL main activities for this initiative without filtering
-                    const activitiesResponse = await api.get('/main-activities/', {
-                      params: { initiative: initiative.id }
-                    });
-                    const activities = activitiesResponse.data?.results || activitiesResponse.data || [];
+                    // Get ALL main activities  
+                    const activitiesResp = await api.get(`/main-activities/?initiative=${initiative.id}`);
+                    const allActivities = activitiesResp.data?.results || activitiesResp.data || [];
                     
-                    console.log(`AdminPlanSummary: Initiative "${initiative.name}": ${measures.length} measures, ${activities.length} activities`);
-                    
-                    // Get sub-activities for each main activity
-                    const enrichedActivities = await Promise.all(
-                      activities.map(async (activity: any) => {
+                    // For each activity, get sub-activities
+                    const activitiesWithSubs = await Promise.all(
+                      allActivities.map(async (activity: any) => {
                         try {
-                          const subActivitiesResponse = await api.get('/sub-activities/', {
-                            params: { main_activity: activity.id }
-                          });
-                          const subActivities = subActivitiesResponse.data?.results || subActivitiesResponse.data || [];
+                          const subResp = await api.get(`/sub-activities/?main_activity=${activity.id}`);
+                          const subs = subResp.data?.results || subResp.data || [];
                           
-                          console.log(`AdminPlanSummary: Activity "${activity.name}": ${subActivities.length} sub-activities`);
-                          
-                          return {
-                            ...activity,
-                            sub_activities: subActivities
-                          };
+                          return { ...activity, sub_activities: subs };
                         } catch (error) {
-                          console.error(`AdminPlanSummary: Error fetching sub-activities for activity ${activity.id}:`, error);
-                          return {
-                            ...activity,
-                            sub_activities: []
-                          };
+                          console.error(`Error getting subs for activity ${activity.id}:`, error);
+                          return { ...activity, sub_activities: [] };
                         }
                       })
                     );
                     
+                    console.log(`AdminPlanSummary: Initiative "${initiative.name}" complete: ${allMeasures.length} measures, ${activitiesWithSubs.length} activities`);
+                    
                     return {
                       ...initiative,
-                      performance_measures: measures,
-                      main_activities: enrichedActivities
+                      performance_measures: allMeasures,
+                      main_activities: activitiesWithSubs
                     };
                   })
                 );
                 
-                console.log(`AdminPlanSummary: Objective "${objective.title}" final data: ${processedInitiatives.length} initiatives processed`);
-                
                 return {
                   ...objective,
-                  initiatives: processedInitiatives
+                  initiatives: completeInitiatives
                 };
-              })
-            );
-            
-            const validObjectives = enrichedObjectives.filter(obj => obj !== null);
-            console.log(`AdminPlanSummary: Final objectives with complete data: ${validObjectives.length}`);
-            
-            plan.objectives = validObjectives;
-            
-          } catch (error) {
-            console.error('AdminPlanSummary: Error fetching complete data:', error);
-            // Don't fail completely - try to use what we have
-            console.log('AdminPlanSummary: Continuing with existing objectives data');
+              } catch (error) {
+                console.error(`AdminPlanSummary: Error processing objective ${objId}:`, error);
+                return null;
+              }
+            })
+          );
+          
+          const validObjectives = objectivesData.filter(obj => obj !== null);
+          console.log(`AdminPlanSummary: Complete data assembled: ${validObjectives.length} objectives`);
+          
+          // Apply weights
+          if (plan.selected_objectives_weights) {
+            validObjectives.forEach((obj: any) => {
+              const weightKey = obj.id?.toString();
+              const selectedWeight = plan.selected_objectives_weights[weightKey];
+              
+              if (selectedWeight !== undefined) {
+                obj.effective_weight = parseFloat(selectedWeight);
+                obj.planner_weight = parseFloat(selectedWeight);
+              }
+            });
           }
-        } else {
-          console.log('AdminPlanSummary: No selected objectives found, using existing data');
+          
+          plan.objectives = validObjectives;
         }
         
-        // Apply selected objective weights
-        if (plan.objectives && plan.selected_objectives_weights) {
-          plan.objectives = plan.objectives.map((obj: any) => {
-            const weightKey = obj.id?.toString();
-            const selectedWeight = plan.selected_objectives_weights[weightKey];
-            
-            if (selectedWeight !== undefined && selectedWeight !== null) {
-              return {
-                ...obj,
-                effective_weight: parseFloat(selectedWeight),
-                planner_weight: parseFloat(selectedWeight),
-                original_weight: obj.weight
-              };
-            }
-            
-            const effectiveWeight = obj.effective_weight !== undefined ? obj.effective_weight : obj.weight;
-            return {
-              ...obj,
-              effective_weight: effectiveWeight
-            };
-          });
-        }
-        
+        console.log('AdminPlanSummary: Final plan data ready with', plan.objectives?.length || 0, 'objectives');
         return plan;
+        
       } catch (error) {
-        console.error('AdminPlanSummary: Error fetching plan:', error);
+        console.error('AdminPlanSummary: Error:', error);
         throw error;
       }
     },
@@ -168,7 +129,7 @@ const AdminPlanSummary: React.FC = () => {
 
   const plan = planData;
 
-  // Calculate budget summary from plan data
+  // SIMPLE BUDGET CALCULATION - NO FILTERING
   const calculateBudgetSummary = () => {
     let totalRequired = 0;
     let governmentTreasury = 0;
@@ -177,8 +138,6 @@ const AdminPlanSummary: React.FC = () => {
     let otherFunding = 0;
     let activitiesCount = 0;
     let measuresCount = 0;
-
-    console.log('AdminPlanSummary: Starting budget calculation for plan:', plan?.id);
 
     if (!plan?.objectives) {
       return {
@@ -200,33 +159,40 @@ const AdminPlanSummary: React.FC = () => {
       objective.initiatives.forEach((initiative: any) => {
         if (!initiative) return;
         
-        // Count and process performance measures
+        // Count measures
         if (initiative.performance_measures) {
           measuresCount += initiative.performance_measures.length;
         }
         
-        // Count and process main activities
+        // Count and process activities
         if (initiative.main_activities) {
           activitiesCount += initiative.main_activities.length;
           
           initiative.main_activities.forEach((activity: any) => {
-            // Process sub-activities for budget calculation
+            // Get budget from sub-activities
             if (activity.sub_activities && activity.sub_activities.length > 0) {
               activity.sub_activities.forEach((subActivity: any) => {
-                try {
-                  const cost = subActivity.budget_calculation_type === 'WITH_TOOL'
-                    ? Number(subActivity.estimated_cost_with_tool || 0)
-                    : Number(subActivity.estimated_cost_without_tool || 0);
+                const cost = subActivity.budget_calculation_type === 'WITH_TOOL'
+                  ? Number(subActivity.estimated_cost_with_tool || 0)
+                  : Number(subActivity.estimated_cost_without_tool || 0);
 
-                  totalRequired += cost;
-                  governmentTreasury += Number(subActivity.government_treasury || 0);
-                  sdgFunding += Number(subActivity.sdg_funding || 0);
-                  partnersFunding += Number(subActivity.partners_funding || 0);
-                  otherFunding += Number(subActivity.other_funding || 0);
-                } catch (error) {
-                  console.error('AdminPlanSummary: Error processing sub-activity budget:', error);
-                }
+                totalRequired += cost;
+                governmentTreasury += Number(subActivity.government_treasury || 0);
+                sdgFunding += Number(subActivity.sdg_funding || 0);
+                partnersFunding += Number(subActivity.partners_funding || 0);
+                otherFunding += Number(subActivity.other_funding || 0);
               });
+            } else if (activity.budget) {
+              // Legacy budget
+              const cost = activity.budget.budget_calculation_type === 'WITH_TOOL'
+                ? Number(activity.budget.estimated_cost_with_tool || 0)
+                : Number(activity.budget.estimated_cost_without_tool || 0);
+
+              totalRequired += cost;
+              governmentTreasury += Number(activity.budget.government_treasury || 0);
+              sdgFunding += Number(activity.budget.sdg_funding || 0);
+              partnersFunding += Number(activity.budget.partners_funding || 0);
+              otherFunding += Number(activity.budget.other_funding || 0);
             }
           });
         }
@@ -236,7 +202,7 @@ const AdminPlanSummary: React.FC = () => {
     const totalAllocated = governmentTreasury + sdgFunding + partnersFunding + otherFunding;
     const fundingGap = Math.max(0, totalRequired - totalAllocated);
 
-    const summary = {
+    return {
       totalRequired,
       totalAllocated,
       fundingGap,
@@ -247,9 +213,6 @@ const AdminPlanSummary: React.FC = () => {
       activitiesCount,
       measuresCount
     };
-
-    console.log('AdminPlanSummary: Budget summary calculated:', summary);
-    return summary;
   };
 
   const budgetSummary = calculateBudgetSummary();
@@ -267,7 +230,7 @@ const AdminPlanSummary: React.FC = () => {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <Loader className="h-6 w-6 animate-spin mr-2" />
-        <span>Loading plan details...</span>
+        <span>Loading complete plan details...</span>
       </div>
     );
   }
@@ -360,7 +323,7 @@ const AdminPlanSummary: React.FC = () => {
         </div>
       </div>
 
-      {/* Comprehensive Budget Summary Cards */}
+      {/* Budget Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <div className="bg-gradient-to-r from-blue-500 to-blue-600 p-4 rounded-lg shadow-sm text-white">
           <div className="flex items-center justify-between">
@@ -415,97 +378,6 @@ const AdminPlanSummary: React.FC = () => {
         </div>
       </div>
 
-      {/* Funding Sources Breakdown */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-500">Government Treasury</p>
-              <p className="text-xl font-semibold text-green-600">
-                ETB {budgetSummary.governmentTreasury.toLocaleString()}
-              </p>
-            </div>
-            <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
-              <DollarSign className="h-6 w-6 text-green-600" />
-            </div>
-          </div>
-          <div className="mt-2">
-            <div className="text-xs text-gray-500">
-              {budgetSummary.totalRequired > 0 
-                ? `${((budgetSummary.governmentTreasury / budgetSummary.totalRequired) * 100).toFixed(1)}% of total`
-                : '0% of total'
-              }
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-500">SDG Funding</p>
-              <p className="text-xl font-semibold text-blue-600">
-                ETB {budgetSummary.sdgFunding.toLocaleString()}
-              </p>
-            </div>
-            <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
-              <Target className="h-6 w-6 text-blue-600" />
-            </div>
-          </div>
-          <div className="mt-2">
-            <div className="text-xs text-gray-500">
-              {budgetSummary.totalRequired > 0 
-                ? `${((budgetSummary.sdgFunding / budgetSummary.totalRequired) * 100).toFixed(1)}% of total`
-                : '0% of total'
-              }
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-500">Partners Funding</p>
-              <p className="text-xl font-semibold text-purple-600">
-                ETB {budgetSummary.partnersFunding.toLocaleString()}
-              </p>
-            </div>
-            <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center">
-              <Building2 className="h-6 w-6 text-purple-600" />
-            </div>
-          </div>
-          <div className="mt-2">
-            <div className="text-xs text-gray-500">
-              {budgetSummary.totalRequired > 0 
-                ? `${((budgetSummary.partnersFunding / budgetSummary.totalRequired) * 100).toFixed(1)}% of total`
-                : '0% of total'
-              }
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-500">Other Funding</p>
-              <p className="text-xl font-semibold text-orange-600">
-                ETB {budgetSummary.otherFunding.toLocaleString()}
-              </p>
-            </div>
-            <div className="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center">
-              <Activity className="h-6 w-6 text-orange-600" />
-            </div>
-          </div>
-          <div className="mt-2">
-            <div className="text-xs text-gray-500">
-              {budgetSummary.totalRequired > 0 
-                ? `${((budgetSummary.otherFunding / budgetSummary.totalRequired) * 100).toFixed(1)}% of total`
-                : '0% of total'
-              }
-            </div>
-          </div>
-        </div>
-      </div>
-
       {/* Plan Statistics */}
       <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 mb-6">
         <h3 className="text-lg font-medium text-gray-900 mb-4">Plan Statistics</h3>
@@ -531,28 +403,37 @@ const AdminPlanSummary: React.FC = () => {
         </div>
       </div>
 
-      {/* Plan Review Table with Admin Context */}
+      {/* Debug Info */}
+      <div className="bg-yellow-50 p-4 rounded-lg border border-yellow-200 mb-6">
+        <h4 className="font-medium text-yellow-800 mb-2">Debug Information (Admin Only)</h4>
+        <div className="text-sm text-yellow-700 grid grid-cols-2 gap-4">
+          <div>
+            <p>Plan ID: {planId}</p>
+            <p>Organization: {plan.organization_name} (ID: {plan.organization})</p>
+            <p>Selected Objectives: {plan.selected_objectives?.length || 0}</p>
+          </div>
+          <div>
+            <p>Processed Objectives: {plan.objectives?.length || 0}</p>
+            <p>Total Initiatives: {plan.objectives?.reduce((sum: number, obj: any) => sum + (obj.initiatives?.length || 0), 0) || 0}</p>
+            <p>Total Measures: {budgetSummary.measuresCount}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Plan Details Table */}
       {plan.objectives && plan.objectives.length > 0 ? (
         <div className="bg-white rounded-lg shadow-sm border border-gray-200">
           <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
-            <h3 className="text-lg font-medium text-gray-900">Detailed Plan Breakdown (Admin View)</h3>
+            <h3 className="text-lg font-medium text-gray-900">Complete Plan Details (Admin View - No Restrictions)</h3>
             <p className="text-sm text-gray-600 mt-1">
-              Complete breakdown for {plan.organization_name} - showing all data without restrictions
+              Showing ALL data for {plan.organization_name} without organizational filtering
             </p>
-            <div className="text-xs text-gray-500 mt-2">
-              <p>Plan Organization: {plan.organization_name} (ID: {plan.organization})</p>
-              <p>Objectives: {plan.objectives.length} | 
-                 Total Initiatives: {plan.objectives.reduce((sum: number, obj: any) => sum + (obj.initiatives?.length || 0), 0)} |
-                 Performance Measures: {budgetSummary.measuresCount} |
-                 Main Activities: {budgetSummary.activitiesCount}
-              </p>
-            </div>
           </div>
           
           <div className="p-6">
             <PlanReviewTable
               objectives={plan.objectives}
-              onSubmit={async () => {}} // No submission needed in view mode
+              onSubmit={async () => {}}
               isSubmitting={false}
               organizationName={plan.organization_name || 'Organization Name Not Available'}
               plannerName={plan.planner_name || 'Planner Name Not Available'}
@@ -567,10 +448,8 @@ const AdminPlanSummary: React.FC = () => {
       ) : (
         <div className="text-center p-8 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
           <Info className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">No Objectives Data</h3>
-          <p className="text-gray-500">
-            This plan doesn't have complete objective data available for display.
-          </p>
+          <h3 className="text-lg font-medium text-gray-900 mb-2">No Complete Data</h3>
+          <p className="text-gray-500">No complete objectives data available for this plan.</p>
         </div>
       )}
     </div>
