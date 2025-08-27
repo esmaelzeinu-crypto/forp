@@ -139,11 +139,18 @@ const AdminPlanSummary: React.FC = () => {
                       };
                       
                       console.log(`AdminPlanSummary: Initiative "${initiative.name}" final: ${measures.length} measures, ${activitiesWithSubs.length} activities`);
+                    } catch (error) {
+                      console.error(`AdminPlanSummary: Error processing initiative ${initiative.id}:`, error);
+                      return {
+                        ...initiative,
+                        performance_measures: [],
+                        main_activities: []
+                      };
                     }
                   })
                 );
                 
-                console.log(`AdminPlanSummary: Objective "${objective.title}" complete with ${enrichedInitiatives.length} initiatives`);
+                console.log(`AdminPlanSummary: Objective "${objective.title}" complete with ${completeInitiatives.length} initiatives`);
                 return {
                   ...objective,
                   initiatives: completeInitiatives
@@ -153,8 +160,15 @@ const AdminPlanSummary: React.FC = () => {
                 return null;
               }
             })
-          }
+          );
+          
+          const validObjectives = objectivesData.filter(obj => obj !== null);
+          console.log(`AdminPlanSummary: Complete data assembled: ${validObjectives.length} objectives`);
+          
+          validObjectives.forEach((obj: any) => {
             console.log(`AdminPlanSummary FINAL: Objective "${obj.title}" has ${obj.initiatives?.length || 0} initiatives`);
+          });
+          
           plan.objectives = validObjectives;
           
           // Apply weights
@@ -257,10 +271,9 @@ const AdminPlanSummary: React.FC = () => {
                 partnersFunding += Number(subActivity.partners_funding || 0);
                 otherFunding += Number(subActivity.other_funding || 0);
                 
+                console.log(`AdminPlanSummary: Sub-activity "${subActivity.name}": Cost=${cost}, Gov=${subActivity.government_treasury}`);
               });
-                  ...objective, 
-                  initiatives: enrichedInitiatives
-              
+            } else if (activity.budget) {
               // Legacy budget
               const cost = activity.budget.budget_calculation_type === 'WITH_TOOL'
                 ? Number(activity.budget.estimated_cost_with_tool || 0)
@@ -571,29 +584,6 @@ const AdminPlanSummary: React.FC = () => {
                 console.log(`  Objective: ${obj.title} has ${obj.initiatives?.length || 0} initiatives`);
               });
               return null;
-              } catch (error) {
-                console.error(`AdminPlanSummary: Error processing objective ${objId}:`, error);
-                return {
-                  ...objective,
-                  initiatives: []
-                };
-              }
-            })
-          );
-          
-          const validObjectives = objectivesData.filter(obj => obj !== null);
-          console.log(`AdminPlanSummary: Complete data assembled: ${validObjectives.length} objectives`);
-          
-          // Apply the custom weights if they exist
-          if (plan.selected_objectives_weights) {
-            validObjectives.forEach((obj: any) => {
-              const weightKey = obj.id?.toString();
-              const selectedWeight = plan.selected_objectives_weights[weightKey];
-              
-              if (selectedWeight !== undefined) {
-                obj.effective_weight = parseFloat(selectedWeight);
-                obj.planner_weight = parseFloat(selectedWeight);
-              }
             })()}
             <PlanReviewTable
               objectives={plan.objectives}
