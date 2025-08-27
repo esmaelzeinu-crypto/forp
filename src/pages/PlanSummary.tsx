@@ -61,7 +61,210 @@ const PlanSummary: React.FC = () => {
         }
         
         const planData = response.data;
+        
+        // Calculate budget summary
+        const calculateBudgetSummary = () => {
+          let totalRequired = 0;
+          let governmentTreasury = 0;
+          let sdgFunding = 0;
+          let partnersFunding = 0;
+          let otherFunding = 0;
+          let activitiesCount = 0;
+          let measuresCount = 0;
+
+          console.log('PlanSummary: Starting budget calculation for plan:', planData.id);
+          console.log('PlanSummary: Plan objectives:', planData.objectives?.length || 0);
+
+          if (!planData.objectives) {
+            console.log('PlanSummary: No objectives found in plan data');
+            return {
+              totalRequired: 0,
+              totalAllocated: 0,
+              fundingGap: 0,
+              governmentTreasury: 0,
+              sdgFunding: 0,
+              partnersFunding: 0,
+              otherFunding: 0,
+              activitiesCount: 0,
+              measuresCount: 0
+            };
+          }
+
+          planData.objectives.forEach((objective: any) => {
+            if (!objective.initiatives) return;
+            
+            // Filter initiatives by planner organization
+            const plannerInitiatives = objective.initiatives.filter((initiative: any) => {
+              if (!initiative) return false;
+              
+              // Include initiatives that belong to the planner's organization
+              const belongsToPlannerOrg = userOrgId && initiative.organization &&
+                                        Number(initiative.organization) === Number(userOrgId);
+              
+              // Also include default initiatives (they belong to Ministry of Health)
+              const isDefaultInitiative = initiative.is_default === true;
+              
+              return belongsToPlannerOrg || isDefaultInitiative;
+            });
+
+            plannerInitiatives.forEach((initiative: any) => {
+              if (!initiative.measures) return;
+              
+              measuresCount += initiative.measures.length;
+              
+              initiative.measures.forEach((measure: any) => {
+                if (!measure.activities) return;
+                
+                activitiesCount += measure.activities.length;
+                
+                measure.activities.forEach((activity: any) => {
+                  // NEW MODEL: Check for sub-activities first
+                  if (activity.sub_activities && activity.sub_activities.length > 0) {
+                    console.log(`PlanSummary: Processing sub-activities for activity "${activity.name}"`);
+                    
+                    activity.sub_activities.forEach((subActivity: any) => {
+                      try {
+                        const cost = subActivity.budget_calculation_type === 'WITH_TOOL'
+                          ? Number(subActivity.estimated_cost_with_tool || 0)
+                          : Number(subActivity.estimated_cost_without_tool || 0);
+
+                        totalRequired += cost;
+                        governmentTreasury += Number(subActivity.government_treasury || 0);
+                        sdgFunding += Number(subActivity.sdg_funding || 0);
+                        partnersFunding += Number(subActivity.partners_funding || 0);
+                        otherFunding += Number(subActivity.other_funding || 0);
+                        
+                        console.log(`PlanSummary: Sub-activity "${subActivity.name}": Required=${cost}, Gov=${subActivity.government_treasury}, Partners=${subActivity.partners_funding}, SDG=${subActivity.sdg_funding}, Other=${subActivity.other_funding}`);
+                      } catch (error) {
+                        console.error('Error processing sub-activity budget:', error);
+                      }
+                    });
+                  }
+                  // Fallback to legacy budget (OLD MODEL)
+                  else if (activity.budget) {
+                    console.log(`PlanSummary: Processing legacy budget for activity "${activity.name}"`);
+                    
+                    try {
+                      const cost = activity.budget.budget_calculation_type === 'WITH_TOOL'
+                        ? Number(activity.budget.estimated_cost_with_tool || 0)
+                        : Number(activity.budget.estimated_cost_without_tool || 0);
+
+                      totalRequired += cost;
+                      governmentTreasury += Number(activity.budget.government_treasury || 0);
+                      sdgFunding += Number(activity.budget.sdg_funding || 0);
+                      partnersFunding += Number(activity.budget.partners_funding || 0);
+                      otherFunding += Number(activity.budget.other_funding || 0);
+                      
+                      console.log(`PlanSummary: Legacy budget for "${activity.name}": Required=${cost}, Gov=${activity.budget.government_treasury}`);
+                    } catch (error) {
+                      console.error('Error processing legacy budget:', error);
+                    }
+                  } else {
+                    console.log(`PlanSummary: Activity "${activity.name}" has no budget data`);
+                  }
+                });
+              });
+            });
+          });
+
+          const totalAllocated = governmentTreasury + sdgFunding + partnersFunding + otherFunding;
+          const fundingGap = Math.max(0, totalRequired - totalAllocated);
+
+          const summary = {
+            totalRequired,
+            totalAllocated,
+            fundingGap,
+            governmentTreasury,
+            sdgFunding,
+            partnersFunding,
+            otherFunding,
+            activitiesCount,
+            measuresCount
+          };
+
+          console.log('PlanSummary: Final budget summary:', summary);
+          return summary;
+        };
+
+        return planData;
+      } catch (error) {
+        console.error('PlanSummary: Error fetching plan:', error);
+        throw error;
+      }
+    },
+    enabled: !!planId
+  });
+
+  const plan = planData;
+
+  const calculateBudgetSummary = () => {
+    let totalRequired = 0;
+    let governmentTreasury = 0;
+    let sdgFunding = 0;
+    let partnersFunding = 0;
+    let otherFunding = 0;
+    let activitiesCount = 0;
+    let measuresCount = 0;
+
+    console.log('PlanSummary: Starting budget calculation for plan:', plan?.id);
+    console.log('PlanSummary: Plan objectives:', plan?.objectives?.length || 0);
+
+    if (!plan?.objectives) {
+      console.log('PlanSummary: No objectives found in plan data');
+      return {
+        totalRequired: 0,
+        totalAllocated: 0,
+        fundingGap: 0,
+        governmentTreasury: 0,
+        sdgFunding: 0,
+        partnersFunding: 0,
+        otherFunding: 0,
+        activitiesCount: 0,
+        measuresCount: 0
+      };
+    }
+
+    plan.objectives.forEach((objective: any) => {
+      if (!objective.initiatives) return;
       
+      // Filter initiatives by planner organization
+      const plannerInitiatives = objective.initiatives.filter((initiative: any) => {
+        if (!initiative) return false;
+        
+        // Include initiatives that belong to the planner's organization
+        const belongsToPlannerOrg = userOrgId && initiative.organization &&
+                                  Number(initiative.organization) === Number(userOrgId);
+        
+        // Also include default initiatives (they belong to Ministry of Health)
+        const isDefaultInitiative = initiative.is_default === true;
+        
+        return belongsToPlannerOrg || isDefaultInitiative;
+      });
+
+      plannerInitiatives.forEach((initiative: any) => {
+        if (!initiative.measures) return;
+        
+        measuresCount += initiative.measures.length;
+        
+        initiative.measures.forEach((measure: any) => {
+          if (!measure.activities) return;
+          
+          activitiesCount += measure.activities.length;
+          
+          measure.activities.forEach((activity: any) => {
+            // NEW MODEL: Check for sub-activities first
+            if (activity.sub_activities && activity.sub_activities.length > 0) {
+              console.log(`PlanSummary: Processing sub-activities for activity "${activity.name}"`);
+              
+              activity.sub_activities.forEach((subActivity: any) => {
+                try {
+                  const cost = subActivity.budget_calculation_type === 'WITH_TOOL'
+                    ? Number(subActivity.estimated_cost_with_tool || 0)
+                    : Number(subActivity.estimated_cost_without_tool || 0);
+
+                  totalRequired += cost;
+                  governmentTreasury += Number(subActivity.government_treasury || 0);
+                  sdgFunding += Number(subActivity.sdg_funding || 0);
                   partnersFunding += Number(subActivity.partners_funding || 0);
                   otherFunding += Number(subActivity.other_funding || 0);
                   
@@ -94,7 +297,7 @@ const PlanSummary: React.FC = () => {
               console.log(`PlanSummary: Activity "${activity.name}" has no budget data`);
             }
           });
-        }
+        });
       });
     });
 
