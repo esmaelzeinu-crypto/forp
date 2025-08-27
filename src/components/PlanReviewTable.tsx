@@ -24,9 +24,15 @@ const MONTHS = [
 // Helper function to check if a month is selected for an item
 const isMonthSelected = (item: any, monthValue: string): boolean => {
   try {
-    // CRITICAL FIX: Check if item exists and has the required properties
+    // CRITICAL FIX: Comprehensive null/undefined checks
     if (!item) {
-      console.error('isMonthSelected: item is null or undefined');
+      console.warn('isMonthSelected: item is null or undefined for month:', monthValue);
+      return false;
+    }
+    
+    // Additional safety checks for item structure
+    if (typeof item !== 'object') {
+      console.warn('isMonthSelected: item is not an object:', typeof item);
       return false;
     }
     
@@ -216,37 +222,8 @@ const PlanReviewTable: React.FC<PlanReviewTableProps> = ({
         console.log(`Objective ${objective.title}: using weight ${objectiveWeight} (effective: ${objective.effective_weight}, planner: ${objective.planner_weight}, original: ${objective.weight})`);
 
         let objectiveAdded = false;
-
-        // CRITICAL FIX: Filter initiatives by plan organization ID (not current user's org)
-        // For admin viewing: use plannerOrgId (which represents the plan's organization)
-        // ADMIN FIX: Show ALL initiatives when viewing (admin mode), filter when editing
-        const relevantInitiatives = (objective.initiatives || []);
-
-        console.log(`Objective ${objective.title}: ${objective.initiatives?.length || 0} total initiatives, ${relevantInitiatives.length} for target org`);
-
-        if (relevantInitiatives.length === 0) {
-          exportData.push({
-            No: (objIndex + 1).toString(),
-            'Strategic Objective': objective.title || 'Untitled Objective',
-            'Strategic Objective Weight': `${objectiveWeight.toFixed(1)}%`,
-            'Strategic Initiative': 'No initiatives available',
-            'Initiative Weight': '-',
-            'Performance Measure/Main Activity': 'No data available',
-            'Weight': '-',
-            'Baseline': '-',
-            'Q1Target': '-',
-            'Q2Target': '-',
-            'SixMonthTarget': '-',
-            'Q3Target': '-',
-            'Q4Target': '-',
-            'AnnualTarget': '-',
-            'Implementor': organizationName,
-            'BudgetRequired': '-',
-            'Government': '-',
-            'Partners': '-',
-            'SDG': '-',
-            'Other': '-',
-            'TotalAvailable': '-',
+            // ADMIN FIX: Main activities are already filtered by AdminPlanSummary
+            console.log(`PlanReviewTable: Including activity "${activity.name}" (pre-filtered)`);
             'Gap': '-',
           });
           objectiveAdded = true;
@@ -260,23 +237,8 @@ const PlanReviewTable: React.FC<PlanReviewTableProps> = ({
           const performanceMeasures = (initiative.performance_measures || []).filter(measure => {
             if (!measure) return false;
             
-            // SIMPLE FIX: Show ALL performance measures for admin
-            console.log(`PlanReviewTable: Performance measure "${measure.name}" included`);
-            return true;
-          });
-
-          const mainActivities = (initiative.main_activities || []).filter(activity => {
-            if (!activity) return false;
-            
-            // SIMPLE FIX: Show ALL main activities for admin
-            console.log(`PlanReviewTable: Main activity "${activity.name}" included`);
-            return true;
-          });
-
-          const allItems = [...performanceMeasures, ...mainActivities];
-
-          if (allItems.length === 0) {
-            exportData.push({
+            // ADMIN FIX: Performance measures are already filtered by AdminPlanSummary
+            console.log(`PlanReviewTable: Including measure "${measure.name}" (pre-filtered)`);
               No: objectiveAdded ? '' : (objIndex + 1).toString(),
               'Strategic Objective': objectiveAdded ? '' : (objective.title || 'Untitled Objective'),
               'Strategic Objective Weight': objectiveAdded ? '' : `${objectiveWeight.toFixed(1)}%`,
@@ -305,7 +267,10 @@ const PlanReviewTable: React.FC<PlanReviewTableProps> = ({
             let initiativeAddedForObjective = false;
 
             allItems.forEach((item) => {
-              if (!item) return;
+              if (!item || typeof item !== 'object') {
+                console.warn('PlanReviewTable: Skipping null/invalid item');
+                return;
+              }
 
               const isPerformanceMeasure = performanceMeasures.includes(item);
                 // Get selected months for each quarter with enhanced matching
@@ -719,19 +684,19 @@ const PlanReviewTable: React.FC<PlanReviewTableProps> = ({
 
                   {/* Q1 Month Columns */}
                   <td className={`px-2 py-4 text-center text-xs border-l-2 border-blue-200 ${
-                    isMonthSelected(row.itemData, 'JUL') ? 'bg-blue-100 text-blue-800 font-medium' : 'bg-white text-gray-400'
+                    (row.itemData && isMonthSelected(row.itemData, 'JUL')) ? 'bg-blue-100 text-blue-800 font-medium' : 'bg-white text-gray-400'
                   }`}>
-                    {isMonthSelected(row.itemData, 'JUL') ? '✓' : ''}
+                    {(row.itemData && isMonthSelected(row.itemData, 'JUL')) ? '✓' : ''}
                   </td>
                   <td className={`px-2 py-4 text-center text-xs ${
-                    isMonthSelected(row.itemData, 'AUG') ? 'bg-blue-100 text-blue-800 font-medium' : 'bg-white text-gray-400'
+                    (row.itemData && isMonthSelected(row.itemData, 'AUG')) ? 'bg-blue-100 text-blue-800 font-medium' : 'bg-white text-gray-400'
                   }`}>
-                    {isMonthSelected(row.itemData, 'AUG') ? '✓' : ''}
+                    {(row.itemData && isMonthSelected(row.itemData, 'AUG')) ? '✓' : ''}
                   </td>
                   <td className={`px-2 py-4 text-center text-xs ${
-                    isMonthSelected(row.itemData, 'SEP') ? 'bg-blue-100 text-blue-800 font-medium' : 'bg-white text-gray-400'
+                    (row.itemData && isMonthSelected(row.itemData, 'SEP')) ? 'bg-blue-100 text-blue-800 font-medium' : 'bg-white text-gray-400'
                   }`}>
-                    {isMonthSelected(row.itemData, 'SEP') ? '✓' : ''}
+                    {(row.itemData && isMonthSelected(row.itemData, 'SEP')) ? '✓' : ''}
                   </td>
                   <td className="px-3 py-4 text-center text-sm text-blue-600 font-medium bg-blue-50">
                     {row.Q1Target}
@@ -739,19 +704,19 @@ const PlanReviewTable: React.FC<PlanReviewTableProps> = ({
 
                   {/* Q2 Month Columns */}
                   <td className={`px-2 py-4 text-center text-xs border-l-2 border-green-200 ${
-                    isMonthSelected(row.itemData, 'OCT') ? 'bg-green-100 text-green-800 font-medium' : 'bg-white text-gray-400'
+                    (row.itemData && isMonthSelected(row.itemData, 'OCT')) ? 'bg-green-100 text-green-800 font-medium' : 'bg-white text-gray-400'
                   }`}>
-                    {isMonthSelected(row.itemData, 'OCT') ? '✓' : ''}
+                    {(row.itemData && isMonthSelected(row.itemData, 'OCT')) ? '✓' : ''}
                   </td>
                   <td className={`px-2 py-4 text-center text-xs ${
-                    isMonthSelected(row.itemData, 'NOV') ? 'bg-green-100 text-green-800 font-medium' : 'bg-white text-gray-400'
+                    (row.itemData && isMonthSelected(row.itemData, 'NOV')) ? 'bg-green-100 text-green-800 font-medium' : 'bg-white text-gray-400'
                   }`}>
-                    {isMonthSelected(row.itemData, 'NOV') ? '✓' : ''}
+                    {(row.itemData && isMonthSelected(row.itemData, 'NOV')) ? '✓' : ''}
                   </td>
                   <td className={`px-2 py-4 text-center text-xs ${
-                    isMonthSelected(row.itemData, 'DEC') ? 'bg-green-100 text-green-800 font-medium' : 'bg-white text-gray-400'
+                    (row.itemData && isMonthSelected(row.itemData, 'DEC')) ? 'bg-green-100 text-green-800 font-medium' : 'bg-white text-gray-400'
                   }`}>
-                    {isMonthSelected(row.itemData, 'DEC') ? '✓' : ''}
+                    {(row.itemData && isMonthSelected(row.itemData, 'DEC')) ? '✓' : ''}
                   </td>
                   <td className="px-3 py-4 text-center text-sm text-green-600 font-medium bg-green-50">
                     {row.Q2Target}
@@ -763,19 +728,19 @@ const PlanReviewTable: React.FC<PlanReviewTableProps> = ({
 
                   {/* Q3 Month Columns */}
                   <td className={`px-2 py-4 text-center text-xs border-l-2 border-orange-200 ${
-                    isMonthSelected(row.itemData, 'JAN') ? 'bg-orange-100 text-orange-800 font-medium' : 'bg-white text-gray-400'
+                    (row.itemData && isMonthSelected(row.itemData, 'JAN')) ? 'bg-orange-100 text-orange-800 font-medium' : 'bg-white text-gray-400'
                   }`}>
-                    {isMonthSelected(row.itemData, 'JAN') ? '✓' : ''}
+                    {(row.itemData && isMonthSelected(row.itemData, 'JAN')) ? '✓' : ''}
                   </td>
                   <td className={`px-2 py-4 text-center text-xs ${
-                    isMonthSelected(row.itemData, 'FEB') ? 'bg-orange-100 text-orange-800 font-medium' : 'bg-white text-gray-400'
+                    (row.itemData && isMonthSelected(row.itemData, 'FEB')) ? 'bg-orange-100 text-orange-800 font-medium' : 'bg-white text-gray-400'
                   }`}>
-                    {isMonthSelected(row.itemData, 'FEB') ? '✓' : ''}
+                    {(row.itemData && isMonthSelected(row.itemData, 'FEB')) ? '✓' : ''}
                   </td>
                   <td className={`px-2 py-4 text-center text-xs ${
-                    isMonthSelected(row.itemData, 'MAR') ? 'bg-orange-100 text-orange-800 font-medium' : 'bg-white text-gray-400'
+                    (row.itemData && isMonthSelected(row.itemData, 'MAR')) ? 'bg-orange-100 text-orange-800 font-medium' : 'bg-white text-gray-400'
                   }`}>
-                    {isMonthSelected(row.itemData, 'MAR') ? '✓' : ''}
+                    {(row.itemData && isMonthSelected(row.itemData, 'MAR')) ? '✓' : ''}
                   </td>
                   <td className="px-3 py-4 text-center text-sm text-orange-600 font-medium bg-orange-50">
                     {row.Q3Target}
@@ -783,9 +748,9 @@ const PlanReviewTable: React.FC<PlanReviewTableProps> = ({
 
                   {/* Q4 Month Columns */}
                   <td className={`px-2 py-4 text-center text-xs border-l-2 border-red-200 ${
-                    (row.itemData && isMonthSelected(row.itemData, 'APR')) ? 'bg-red-100 text-red-800 font-medium' : 'bg-white text-gray-400'
+                    (row.itemData && isMonthSelected(row.itemData, 'MAY')) ? 'bg-red-100 text-red-800 font-medium' : 'bg-white text-gray-400'
                   }`}>
-                    {(row.itemData && isMonthSelected(row.itemData, 'APR')) ? '✓' : ''}
+                    {(row.itemData && isMonthSelected(row.itemData, 'MAY')) ? '✓' : ''}
                   </td>
                   <td className={`px-2 py-4 text-center text-xs ${
                     (row.itemData && isMonthSelected(row.itemData, 'MAY')) ? 'bg-red-100 text-red-800 font-medium' : 'bg-white text-gray-400'

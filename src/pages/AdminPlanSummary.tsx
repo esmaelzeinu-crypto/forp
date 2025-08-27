@@ -44,7 +44,7 @@ const AdminPlanSummary: React.FC = () => {
                 console.log(`AdminPlanSummary: Processing objective "${objective.title}"`);
                 console.log(`AdminPlanSummary: Objective has ${objective.initiatives?.length || 0} initiatives from serializer`);
                 
-                // CRITICAL FIX: Try multiple API endpoints to get initiatives
+                // Get initiatives for this objective that belong to the PLAN'S organization
                 let allInitiatives = [];
                 
                 // Try the direct endpoint first
@@ -86,8 +86,23 @@ const AdminPlanSummary: React.FC = () => {
                 
                 console.log(`AdminPlanSummary: API returned ${allInitiatives2.length} initiatives for objective ${objId}`);
                 
+                // CRITICAL: Filter initiatives to show only those belonging to the PLAN'S organization
+                const planOrgInitiatives = allInitiatives.filter((initiative: any) => {
+                  const isDefault = initiative.is_default === true;
+                  const belongsToPlanOrg = initiative.organization && Number(initiative.organization) === Number(plan.organization);
+                  const hasNoOrg = !initiative.organization;
+                  
+                  // Include: defaults, plan organization initiatives, or those with no organization
+                  const shouldInclude = isDefault || belongsToPlanOrg || hasNoOrg;
+                  
+                  console.log(`AdminPlanSummary: Initiative "${initiative.name}": isDefault=${isDefault}, belongsToPlan=${belongsToPlanOrg}, hasNoOrg=${hasNoOrg}, include=${shouldInclude}`);
+                  return shouldInclude;
+                });
+                
+                console.log(`AdminPlanSummary: Filtered to ${planOrgInitiatives.length} initiatives for plan organization ${plan.organization}`);
+                
                 // CRITICAL: Use the fetched initiatives, not the ones from serializer
-                if (allInitiatives.length === 0) {
+                if (planOrgInitiatives.length === 0) {
                   console.warn(`AdminPlanSummary: No initiatives found for objective ${objId}`);
                   console.warn(`AdminPlanSummary: FINAL - No initiatives found for objective ${objId} "${objective.title}"`);
                   return {
@@ -95,23 +110,43 @@ const AdminPlanSummary: React.FC = () => {
                     initiatives: []
                   };
                 }
-                
+                    // Get performance measures for this initiative that belong to the PLAN'S organization
                 // For each initiative, get ALL its data
                 const completeInitiatives = await Promise.all(
-                  allInitiatives.map(async (initiative: any) => {
-                    console.log(`AdminPlanSummary: Processing initiative "${initiative.name}"`);
+                  planOrgInitiatives.map(async (initiative: any) => {
+                    const allMeasures = measuresResponse.data?.results || measuresResponse.data || [];
                     
-                    // Get ALL performance measures
+                    // Filter measures by plan organization
+                    const planOrgMeasures = allMeasures.filter((measure: any) => {
+                      const belongsToPlanOrg = measure.organization && Number(measure.organization) === Number(plan.organization);
+                      const hasNoOrg = !measure.organization;
+                      const shouldInclude = belongsToPlanOrg || hasNoOrg;
+                      
+                      console.log(`AdminPlanSummary: Measure "${measure.name}": belongsToPlan=${belongsToPlanOrg}, hasNoOrg=${hasNoOrg}, include=${shouldInclude}`);
+                      return shouldInclude;
+                    });
+                    
+                    // Get main activities for this initiative that belong to the PLAN'S organization
                     const measuresResp = await api.get(`/performance-measures/?initiative=${initiative.id}`);
                     const allMeasures = measuresResp.data?.results || measuresResp.data || [];
                     
-                    // Get ALL main activities  
+                    const allActivities = activitiesResponse.data?.results || activitiesResponse.data || [];
+                    
+                    // Filter activities by plan organization
+                    const planOrgActivities = allActivities.filter((activity: any) => {
+                      const belongsToPlanOrg = activity.organization && Number(activity.organization) === Number(plan.organization);
+                      const hasNoOrg = !activity.organization;
+                      const shouldInclude = belongsToPlanOrg || hasNoOrg;
+                      
+                      console.log(`AdminPlanSummary: Activity "${activity.name}": belongsToPlan=${belongsToPlanOrg}, hasNoOrg=${hasNoOrg}, include=${shouldInclude}`);
+                      return shouldInclude;
+                    });
                     const activitiesResp = await api.get(`/main-activities/?initiative=${initiative.id}`);
-                    const allActivities = activitiesResp.data?.results || activitiesResp.data || [];
+                    console.log(`AdminPlanSummary: Initiative "${initiative.name}": ${planOrgMeasures.length} measures, ${planOrgActivities.length} activities for plan org ${plan.organization}`);
                     
                     // For each activity, get sub-activities
                     const activitiesWithSubs = await Promise.all(
-                      allActivities.map(async (activity: any) => {
+                      planOrgActivities.map(async (activity: any) => {
                         try {
                           const subResp = await api.get(`/sub-activities/?main_activity=${activity.id}`);
                           const subs = subResp.data?.results || subResp.data || [];
@@ -128,7 +163,7 @@ const AdminPlanSummary: React.FC = () => {
                     
                     return {
                       ...initiative,
-                      performance_measures: allMeasures,
+                      performance_measures: planOrgMeasures,
                       main_activities: activitiesWithSubs
                     };
                   })
