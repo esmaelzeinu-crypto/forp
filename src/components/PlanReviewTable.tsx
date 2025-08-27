@@ -223,22 +223,21 @@ const PlanReviewTable: React.FC<PlanReviewTableProps> = ({
 
         let objectiveAdded = false;
 
-        // CRITICAL FIX: Filter initiatives by plan organization ID (not current user's org)
-        // For admin viewing: use plannerOrgId (which represents the plan's organization)
-        // ADMIN FIX: Show ALL initiatives when viewing (admin mode), filter when editing
-        const relevantInitiatives = (objective.initiatives || []);
-
-        console.log(`Objective ${objective.title}: ${objective.initiatives?.length || 0} total initiatives, ${relevantInitiatives.length} for target org`);
+        // Get relevant initiatives for this objective
+        const relevantInitiatives = (objective.strategic_initiatives || []).filter(initiative => {
+          if (!initiative) return false;
+          
+          // ADMIN FIX: Main activities are already filtered by AdminPlanSummary
+          console.log(`PlanReviewTable: Including initiative "${initiative.name}" (pre-filtered)`);
+          return true;
+        });
 
         if (relevantInitiatives.length === 0) {
-          // ADMIN FIX: For AdminPlanSummary, initiatives are already filtered by plan organization
-          // So we just show everything that comes in the objectives data
-          console.log(`PlanReviewTable: Including initiative "${initiative.name}" (pre-filtered by AdminPlanSummary)`);
           exportData.push({
             No: (objIndex + 1).toString(),
             'Strategic Objective': objective.title || 'Untitled Objective',
             'Strategic Objective Weight': `${objectiveWeight.toFixed(1)}%`,
-            'Strategic Initiative': 'No initiatives available',
+            'Strategic Initiative': 'No initiatives',
             'Initiative Weight': '-',
             'Performance Measure/Main Activity': 'No measures or activities',
             'Weight': '-',
@@ -269,16 +268,16 @@ const PlanReviewTable: React.FC<PlanReviewTableProps> = ({
           const performanceMeasures = (initiative.performance_measures || []).filter(measure => {
             if (!measure) return false;
             
-            // SIMPLE FIX: Show ALL performance measures for admin
-            console.log(`PlanReviewTable: Performance measure "${measure.name}" included`);
+            // ADMIN FIX: Performance measures are already filtered by AdminPlanSummary
+            console.log(`PlanReviewTable: Including measure "${measure.name}" (pre-filtered)`);
             return true;
           });
 
           const mainActivities = (initiative.main_activities || []).filter(activity => {
             if (!activity) return false;
             
-            // SIMPLE FIX: Show ALL main activities for admin
-            console.log(`PlanReviewTable: Main activity "${activity.name}" included`);
+            // ADMIN FIX: Main activities are already filtered by AdminPlanSummary
+            console.log(`PlanReviewTable: Including activity "${activity.name}" (pre-filtered)`);
             return true;
           });
 
@@ -320,6 +319,7 @@ const PlanReviewTable: React.FC<PlanReviewTableProps> = ({
               }
 
               const isPerformanceMeasure = performanceMeasures.includes(item);
+
               // Get selected months for each quarter with enhanced matching
               const q1Months = getSelectedMonthsForQuarter(item, 'Q1');
               const q2Months = getSelectedMonthsForQuarter(item, 'Q2');
