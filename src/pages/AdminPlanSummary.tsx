@@ -38,20 +38,57 @@ const AdminPlanSummary: React.FC = () => {
               try {
                 console.log(`AdminPlanSummary: Processing objective ${objId}`);
                 
-                console.log(`AdminPlanSummary: Processing objective "${objective.title}"`);
-                console.log(`AdminPlanSummary: Objective has ${objective.initiatives?.length || 0} initiatives from serializer`);
                 const objResp = await api.get(`/strategic-objectives/${objId}/`);
                 const objective = objResp.data;
                 
+                console.log(`AdminPlanSummary: Processing objective "${objective.title}"`);
+                console.log(`AdminPlanSummary: Objective has ${objective.initiatives?.length || 0} initiatives from serializer`);
+                
+                // CRITICAL FIX: Try multiple API endpoints to get initiatives
+                let allInitiatives = [];
+                
+                // Try the direct endpoint first
+                try {
+                  console.log(`AdminPlanSummary: Trying direct initiatives endpoint for objective ${objId}`);
+                  const initiativesResponse = await api.get('/strategic-initiatives/', {
+                    params: { strategic_objective: objId }
+                  });
+                  allInitiatives = initiativesResponse.data?.results || initiativesResponse.data || [];
+                  console.log(`AdminPlanSummary: Direct endpoint returned ${allInitiatives.length} initiatives`);
+                } catch (error) {
+                  console.error(`AdminPlanSummary: Direct endpoint failed:`, error);
+                }
+                
+                // If no initiatives found, try the serializer data first
+                if (allInitiatives.length === 0 && objective.initiatives && objective.initiatives.length > 0) {
+                  console.log(`AdminPlanSummary: Using initiatives from objective serializer: ${objective.initiatives.length}`);
+                  allInitiatives = objective.initiatives;
+                }
+                
+                // If still no initiatives, try without params
+                if (allInitiatives.length === 0) {
+                  try {
+                    console.log(`AdminPlanSummary: Trying to get all initiatives and filter manually`);
+                    const allInitiativesResponse = await api.get('/strategic-initiatives/');
+                    const allInits = allInitiativesResponse.data?.results || allInitiativesResponse.data || [];
+                    allInitiatives = allInits.filter((init: any) => 
+                      init.strategic_objective && Number(init.strategic_objective) === Number(objId)
+                    );
+                    console.log(`AdminPlanSummary: Manual filter found ${allInitiatives.length} initiatives for objective ${objId}`);
+                  } catch (error) {
+                    console.error(`AdminPlanSummary: Manual filtering failed:`, error);
+                  }
+                }
+                
                 // Get ALL initiatives for this objective
                 const initResp = await api.get(`/strategic-initiatives/?strategic_objective=${objId}`);
-                const allInitiatives = initResp.data?.results || initResp.data || [];
+                const allInitiatives2 = initResp.data?.results || initResp.data || [];
                 
-                console.log(`AdminPlanSummary: API returned ${allInitiatives.length} initiatives for objective ${objId}`);
+                console.log(`AdminPlanSummary: API returned ${allInitiatives2.length} initiatives for objective ${objId}`);
                 
                 // CRITICAL: Use the fetched initiatives, not the ones from serializer
                 if (allInitiatives.length === 0) {
-                  console.warn(`AdminPlanSummary: No initiatives found for objective ${objId}`);
+                  console.warn(`AdminPlanSummary: FINAL - No initiatives found for objective ${objId} "${objective.title}"`);
                   return {
                     ...objective,
                     initiatives: []
@@ -106,52 +143,15 @@ const AdminPlanSummary: React.FC = () => {
                 return null;
               }
             })
-            
-            // Log final initiative counts for debugging
-            validObjectives.forEach((obj: any) => {
-              console.log(`AdminPlanSummary FINAL: Objective "${obj.title}" has ${obj.initiatives?.length || 0} initiatives`);
-                // CRITICAL FIX: Try multiple API endpoints to get initiatives
-                let allInitiatives = [];
-                
-                // Try the direct endpoint first
-                try {
-                  console.log(`AdminPlanSummary: Trying direct initiatives endpoint for objective ${objId}`);
-                  const initiativesResponse = await api.get('/strategic-initiatives/', {
-                    params: { strategic_objective: objId }
-                  });
-                  allInitiatives = initiativesResponse.data?.results || initiativesResponse.data || [];
-                  console.log(`AdminPlanSummary: Direct endpoint returned ${allInitiatives.length} initiatives`);
-                } catch (error) {
-                  console.error(`AdminPlanSummary: Direct endpoint failed:`, error);
-                }
-                
-                // If no initiatives found, try the serializer data first
-                if (allInitiatives.length === 0 && objective.initiatives && objective.initiatives.length > 0) {
-                  console.log(`AdminPlanSummary: Using initiatives from objective serializer: ${objective.initiatives.length}`);
-                  allInitiatives = objective.initiatives;
-                }
-                
-                // If still no initiatives, try without params
-                if (allInitiatives.length === 0) {
-                  try {
-                    console.log(`AdminPlanSummary: Trying to get all initiatives and filter manually`);
-                    const allInitiativesResponse = await api.get('/strategic-initiatives/');
-                    const allInits = allInitiativesResponse.data?.results || allInitiativesResponse.data || [];
-                    allInitiatives = allInits.filter((init: any) => 
-                      init.strategic_objective && Number(init.strategic_objective) === Number(objId)
-                    );
-                    console.log(`AdminPlanSummary: Manual filter found ${allInitiatives.length} initiatives for objective ${objId}`);
-                  } catch (error) {
-                    console.error(`AdminPlanSummary: Manual filtering failed:`, error);
-                  }
-                }
-                
-              }
-            });
           );
           
           const validObjectives = objectivesData.filter(obj => obj !== null);
           console.log(`AdminPlanSummary: Complete data assembled: ${validObjectives.length} objectives`);
+          
+          // Log final initiative counts for debugging
+          validObjectives.forEach((obj: any) => {
+            console.log(`AdminPlanSummary FINAL: Objective "${obj.title}" has ${obj.initiatives?.length || 0} initiatives`);
+          });
           
           // Apply weights
           if (plan.selected_objectives_weights) {
@@ -169,9 +169,9 @@ const AdminPlanSummary: React.FC = () => {
           plan.objectives = validObjectives;
         }
         
-        // REMOVED: Don't check admin permissions for plan viewing
-        // Admin should be able to view any plan details
-        console.log('AdminPlanSummary: User authenticated, proceeding without role restrictions');
+        console.log('AdminPlanSummary: Final plan data ready with', plan.objectives?.length || 0, 'objectives');
+        return plan;
+        
       } catch (error) {
         console.error('AdminPlanSummary: Error:', error);
         throw error;
@@ -364,7 +364,7 @@ const AdminPlanSummary: React.FC = () => {
           <div className="flex items-center">
             <Calendar className="h-8 w-8 text-orange-600 mr-3" />
             <div>
-                  console.warn(`AdminPlanSummary: FINAL - No initiatives found for objective ${objId} "${objective.title}"`);
+              <p className="text-sm text-gray-500">Period</p>
               <p className="font-medium text-gray-900">
                 {plan.from_date && plan.to_date 
                   ? `${formatDate(plan.from_date)} - ${formatDate(plan.to_date)}`
