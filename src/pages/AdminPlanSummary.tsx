@@ -88,6 +88,7 @@ const AdminPlanSummary: React.FC = () => {
                 
                 // CRITICAL: Use the fetched initiatives, not the ones from serializer
                 if (allInitiatives.length === 0) {
+                  console.warn(`AdminPlanSummary: No initiatives found for objective ${objId}`);
                   console.warn(`AdminPlanSummary: FINAL - No initiatives found for objective ${objId} "${objective.title}"`);
                   return {
                     ...objective,
@@ -169,9 +170,11 @@ const AdminPlanSummary: React.FC = () => {
           plan.objectives = validObjectives;
         }
         
-        console.log('AdminPlanSummary: Final plan data ready with', plan.objectives?.length || 0, 'objectives');
-        return plan;
+        // REMOVED: Don't check admin permissions for plan viewing
+        // Admin should be able to view any plan details
+        console.log('AdminPlanSummary: User authenticated, proceeding without role restrictions');
         
+        return plan;
       } catch (error) {
         console.error('AdminPlanSummary: Error:', error);
         throw error;
