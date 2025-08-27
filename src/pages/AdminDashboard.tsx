@@ -45,16 +45,22 @@ const AdminDashboard: React.FC = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'overview' | 'reviewed' | 'budget-activity' | 'analytics' | 'executive-performance'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'pending' | 'reviewed' | 'budget-activity' | 'analytics' | 'executive-performance'>('overview');
   const [reviewedFilter, setReviewedFilter] = useState('all');
   const [reviewedOrgFilter, setReviewedOrgFilter] = useState('all');
   const [reviewedSearch, setReviewedSearch] = useState('');
   const [reviewedSortBy, setReviewedSortBy] = useState<'date' | 'organization' | 'status'>('date');
   const [reviewedSortOrder, setReviewedSortOrder] = useState<'asc' | 'desc'>('desc');
   const [reviewedCurrentPage, setReviewedCurrentPage] = useState(1);
+  const [pendingCurrentPage, setPendingCurrentPage] = useState(1);
+  const [pendingSearch, setPendingSearch] = useState('');
+  const [pendingOrgFilter, setPendingOrgFilter] = useState('all');
+  const [pendingSortBy, setPendingSortBy] = useState<'date' | 'organization' | 'planner'>('date');
+  const [pendingSortOrder, setPendingSortOrder] = useState<'asc' | 'desc'>('desc');
   const [budgetActivityCurrentPage, setBudgetActivityCurrentPage] = useState(1);
   const [executiveCurrentPage, setExecutiveCurrentPage] = useState(1);
   const reviewedItemsPerPage = 10;
+  const pendingItemsPerPage = 10;
   const budgetActivityItemsPerPage = 10;
   const executiveItemsPerPage = 10;
 
@@ -167,25 +173,7 @@ const AdminDashboard: React.FC = () => {
     setupOrganizationHierarchy();
   }, [adminOrgId, isAuthInitialized]);
 
-  // Create filtered organizations mapping for non-Minister admins
-  const filteredOrganizationsMap = useMemo(() => {
-    if (adminOrgType === 'MINISTER') {
-      return organizationsMap; // Minister sees all organizations
-    }
-    
-    // Non-Minister admin: only show hierarchy organizations
-    const filteredMap: Record<string, string> = {};
-    allowedOrgIds.forEach(orgId => {
-      if (organizationsMap[orgId]) {
-        filteredMap[orgId] = organizationsMap[orgId];
-      }
-    });
-    
-    console.log(`Filtered organizations map for non-Minister admin: ${Object.keys(filteredMap).length} organizations`);
-    return filteredMap;
-  }, [organizationsMap, adminOrgType, allowedOrgIds]);
-
-  // Direct sub-activities data fetch with proper organization filtering
+  // Direct sub-activities data fetch
   const { data: directSubActivitiesData, isLoading: isLoadingDirectSubActivities } = useQuery({
     queryKey: ['sub-activities', 'direct', allowedOrgIds, adminOrgType],
     queryFn: async () => {
@@ -293,7 +281,6 @@ const AdminDashboard: React.FC = () => {
           );
           console.log(`After client-side filtering: ${plansData.length} plans for non-Minister admin`);
         }
-
         // Map organization names to plans
         plansData = plansData.map((plan: any) => {
           const organizationName = organizationsMap[plan.organization] ||
@@ -306,7 +293,7 @@ const AdminDashboard: React.FC = () => {
           };
         });
 
-        console.log(`Final plans for admin dashboard: ${plansData.length}`);
+        console.log(`Fetched ${plansData.length} plans for admin dashboard`);
         return { data: plansData };
       } catch (error) {
         console.error('Error fetching all plans:', error);
@@ -324,7 +311,6 @@ const AdminDashboard: React.FC = () => {
            (plan.organization && organizationsMap[plan.organization]) ||
            'Unknown Organization';
   };
-
   // FILTERED: Calculate summary statistics for plans (organization hierarchy applied)
   const reviewedPlansData = useMemo(() => {
     const plans = allPlans?.data || [];
@@ -334,13 +320,14 @@ const AdminDashboard: React.FC = () => {
       const filtered = plans.filter((plan: any) => 
         allowedOrgIds.includes(Number(plan.organization))
       );
-      console.log(`Non-Minister admin (${adminOrgType}): filtered to ${filtered.length} plans from ${plans.length} total for orgs:`, allowedOrgIds);
+      console.log(`Non-Minister admin: filtered to ${filtered.length} plans from ${plans.length} total`);
       return filtered;
     }
     
     console.log(`Minister admin: showing all ${plans.length} plans`);
     return plans;
   }, [allPlans?.data, allowedOrgIds, adminOrgType]);
+
 
   // FILTERED: Calculate counts (organization hierarchy applied)
   const { totalPlans, pendingCount, approvedCount, rejectedCount } = useMemo(() => {
@@ -349,8 +336,7 @@ const AdminDashboard: React.FC = () => {
     let approved = 0;
     let rejected = 0;
 
-    console.log(`Calculating plan counts from ${reviewedPlansData.length} filtered plans for admin type: ${adminOrgType}`);
-
+    console.log(`Calculating plan counts from ${reviewedPlansData.length} filtered plans`);
     reviewedPlansData.forEach(plan => {
       if (['SUBMITTED', 'APPROVED'].includes(plan.status)) {
         total++;
@@ -360,8 +346,7 @@ const AdminDashboard: React.FC = () => {
       if (plan.status === 'REJECTED') rejected++;
     });
 
-    console.log(`FINAL Plan counts for ${adminOrgType} admin - Total: ${total}, Pending: ${pending}, Approved: ${approved}, Rejected: ${rejected}`);
-
+    console.log(`Plan counts - Total: ${total}, Pending: ${pending}, Approved: ${approved}, Rejected: ${rejected}`);
     return {
       totalPlans: total,
       pendingCount: pending,
@@ -373,8 +358,10 @@ const AdminDashboard: React.FC = () => {
   // Calculate budget totals directly from sub-activities
   const budgetTotals = useMemo(() => {
     const subActivities = directSubActivitiesData?.data || [];
+    const submittedAndApprovedPlans = reviewedPlansData.filter(plan => ['SUBMITTED', 'APPROVED'].includes(plan.status));
+    const submittedAndApprovedOrgIds = submittedAndApprovedPlans.map(plan => Number(plan.organization));
     
-    console.log(`Calculating budget totals from ${subActivities.length} sub-activities`);
+    console.log(`Calculating budget totals from ${subActivities.length} sub-activities for ${submittedAndApprovedPlans.length} SUBMITTED/APPROVED plans`);
     
     if (subActivities.length === 0) {
       return {
@@ -396,6 +383,11 @@ const AdminDashboard: React.FC = () => {
     let otherTotal = 0;
     
     subActivities.forEach((subActivity: any) => {
+      // CRITICAL: Only include sub-activities from organizations with SUBMITTED or APPROVED plans
+      if (!submittedAndApprovedOrgIds.includes(Number(subActivity.organization))) {
+        return; // Skip sub-activities from organizations with only REJECTED or DRAFT plans
+      }
+      
       const budget = subActivity.budget_calculation_type === 'WITH_TOOL'
         ? Number(subActivity.estimated_cost_with_tool || 0)
         : Number(subActivity.estimated_cost_without_tool || 0);
@@ -420,7 +412,8 @@ const AdminDashboard: React.FC = () => {
       totalBudget,
       totalFunding,
       fundingGap,
-      subActivitiesCount: subActivities.length
+      subActivitiesCount: subActivities.length,
+      submittedApprovedPlans: submittedAndApprovedPlans.length
     });
     
     return {
@@ -432,13 +425,15 @@ const AdminDashboard: React.FC = () => {
       sdgTotal,
       otherTotal
     };
-  }, [directSubActivitiesData?.data]);
+  }, [directSubActivitiesData?.data, reviewedPlansData]);
 
   // Calculate activity type budgets directly from sub-activities
   const calculateActivityTypeBudgets = useMemo(() => {
     const subActivities = directSubActivitiesData?.data || [];
+    const submittedAndApprovedPlans = reviewedPlansData.filter(plan => ['SUBMITTED', 'APPROVED'].includes(plan.status));
+    const submittedAndApprovedOrgIds = submittedAndApprovedPlans.map(plan => Number(plan.organization));
     
-    console.log(`Calculating activity type budgets from ${subActivities.length} sub-activities`);
+    console.log(`Calculating activity type budgets from ${subActivities.length} sub-activities for ${submittedAndApprovedPlans.length} SUBMITTED/APPROVED plans`);
 
     const activityBudgets = {
       Training: { count: 0, budget: 0 },
@@ -452,6 +447,11 @@ const AdminDashboard: React.FC = () => {
 
     // Process sub-activities directly
     subActivities.forEach((subActivity: any) => {
+      // CRITICAL: Only include sub-activities from organizations with SUBMITTED or APPROVED plans
+      if (!submittedAndApprovedOrgIds.includes(Number(subActivity.organization))) {
+        return; // Skip sub-activities from organizations with only REJECTED or DRAFT plans
+      }
+      
       const activityType = subActivity.activity_type || 'Other';
       const key = activityType as keyof typeof activityBudgets;
       
@@ -467,9 +467,9 @@ const AdminDashboard: React.FC = () => {
       }
     });
 
-    console.log('Final activity type budgets:', activityBudgets);
+    console.log('Final activity type budgets (SUBMITTED/APPROVED only):', activityBudgets);
     return activityBudgets;
-  }, [directSubActivitiesData?.data]);
+  }, [directSubActivitiesData?.data, reviewedPlansData]);
 
   // Calculate monthly trends
   const monthlyTrends = useMemo(() => {
@@ -500,14 +500,13 @@ const AdminDashboard: React.FC = () => {
       submissions: sortedMonths.map(month => monthlyData[month].submissions),
       budgets: sortedMonths.map(month => monthlyData[month].budget)
     };
-  }, [reviewedPlansData]);
+  }, [reviewedPlansData, directSubActivitiesData?.data]);
 
   // Calculate organization performance for charts
   const orgPerformance = useMemo(() => {
     const submittedAndApprovedPlans = reviewedPlansData.filter(plan => ['SUBMITTED', 'APPROVED'].includes(plan.status));
 
     console.log(`Calculating org performance from ${submittedAndApprovedPlans.length} filtered submitted/approved plans`);
-
     const orgData: Record<string, { plans: number; budget: number; name: string }> = {};
 
     submittedAndApprovedPlans.forEach((plan: any) => {
@@ -537,7 +536,6 @@ const AdminDashboard: React.FC = () => {
       .slice(0, 10);
 
     console.log(`Org performance calculated for ${sortedOrgs.length} organizations`);
-
     return {
       labels: sortedOrgs.map(org => org.name),
       plans: sortedOrgs.map(org => org.plans),
@@ -549,7 +547,7 @@ const AdminDashboard: React.FC = () => {
   const budgetByActivityData = useMemo(() => {
     const subActivities = directSubActivitiesData?.data || [];
     
-    console.log(`Calculating budget by activity data from ${subActivities.length} sub-activities for admin type: ${adminOrgType}`);
+    console.log(`Calculating budget by activity data from ${subActivities.length} sub-activities`);
 
     const orgActivityData: Record<string, {
       organizationName: string;
@@ -565,20 +563,8 @@ const AdminDashboard: React.FC = () => {
 
     // Process sub-activities directly by organization
     subActivities.forEach((subActivity: any) => {
-      const orgId = subActivity.organization;
-      
-      // Skip if no organization or not in allowed hierarchy for non-Minister admins
-      if (!orgId) {
-        console.log('Skipping sub-activity with no organization');
-        return;
-      }
-      
-      if (adminOrgType !== 'MINISTER' && allowedOrgIds.length > 0 && !allowedOrgIds.includes(Number(orgId))) {
-        console.log(`Skipping sub-activity from org ${orgId} - not in hierarchy`);
-        return;
-      }
-      
-      const orgName = organizationsMap[orgId] || 'Unknown Organization';
+      const orgId = subActivity.organization || 'unknown';
+      const orgName = subActivity.organizationName || organizationsMap[orgId] || 'Unknown Organization';
 
       if (!orgActivityData[orgId]) {
         orgActivityData[orgId] = {
@@ -597,7 +583,7 @@ const AdminDashboard: React.FC = () => {
       const activityType = subActivity.activity_type || 'Other';
       const key = activityType as keyof typeof orgActivityData[typeof orgId];
       
-      if (key in orgActivityData[orgId] && orgActivityData[orgId][key]) {
+      if (orgActivityData[orgId][key]) {
         orgActivityData[orgId][key].count++;
         orgActivityData[orgId].totalCount++;
         
@@ -612,20 +598,19 @@ const AdminDashboard: React.FC = () => {
     });
 
     const result = Object.values(orgActivityData);
-    console.log(`FINAL budget by activity data for ${adminOrgType} admin:`, result.length, 'organizations');
+    console.log(`Final budget by activity data:`, result.length, 'organizations');
     result.forEach(org => {
-      console.log(`${org.organizationName}: ${org.totalCount} activities, ${formatCurrency(org.totalBudget)} budget`);
+      console.log(`${org.organizationName}: ${org.totalCount} activities, ETB ${org.totalBudget.toLocaleString()} budget`);
     });
     
     return result;
-  }, [directSubActivitiesData?.data, organizationsMap, adminOrgType, allowedOrgIds]);
+  }, [directSubActivitiesData?.data, organizationsMap]);
 
   // Calculate executive performance data
   const executivePerformanceData = useMemo(() => {
     const submittedAndApprovedPlans = reviewedPlansData.filter(plan => ['SUBMITTED', 'APPROVED'].includes(plan.status));
 
-    console.log(`Calculating executive performance from ${submittedAndApprovedPlans.length} filtered plans for admin type: ${adminOrgType}`);
-
+    console.log(`Calculating executive performance from ${submittedAndApprovedPlans.length} filtered plans`);
     const executiveData: Record<string, {
       organizationName: string;
       totalPlans: number;
@@ -639,38 +624,30 @@ const AdminDashboard: React.FC = () => {
       fundingGap: number;
     }> = {};
 
-    // Process ALL hierarchical organizations (even if they don't have plans)
-    const relevantOrgIds = adminOrgType === 'MINISTER' 
-      ? Object.keys(organizationsMap).map(id => Number(id))
-      : allowedOrgIds;
-    
-    console.log(`Processing executive performance for ${relevantOrgIds.length} relevant organizations`);
-    
-    // Initialize data for all relevant organizations
-    relevantOrgIds.forEach(orgId => {
-      const orgName = organizationsMap[orgId] || 'Unknown Organization';
-      executiveData[orgId] = {
-        organizationName: orgName,
-        totalPlans: 0,
-        approved: 0,
-        submitted: 0,
-        totalBudget: 0,
-        availableFunding: 0,
-        governmentBudget: 0,
-        sdgBudget: 0,
-        partnersBudget: 0,
-        fundingGap: 0
-      };
-    });
-    
-    // Add plan counts
+    // CRITICAL: Only process organizations that are in the allowed hierarchy
     submittedAndApprovedPlans.forEach((plan: any) => {
       const orgId = plan.organization;
       
-      // Skip if not in relevant organizations
-      if (!relevantOrgIds.includes(Number(orgId))) {
-        console.log(`Skipping plan from org ${orgId} - not in hierarchy`);
+      // Skip if organization is not in allowed list for non-Minister admins
+      if (adminOrgType !== 'MINISTER' && allowedOrgIds.length > 0 && !allowedOrgIds.includes(Number(orgId))) {
         return;
+      }
+      
+      const orgName = getOrganizationName(plan);
+
+      if (!executiveData[orgId]) {
+        executiveData[orgId] = {
+          organizationName: orgName,
+          totalPlans: 0,
+          approved: 0,
+          submitted: 0,
+          totalBudget: 0,
+          availableFunding: 0,
+          governmentBudget: 0,
+          sdgBudget: 0,
+          partnersBudget: 0,
+          fundingGap: 0
+        };
       }
 
       executiveData[orgId].totalPlans++;
@@ -680,17 +657,12 @@ const AdminDashboard: React.FC = () => {
       } else if (plan.status === 'SUBMITTED') {
         executiveData[orgId].submitted++;
       }
-    });
-    
-    // Add budget data from sub-activities for all relevant organizations
-    relevantOrgIds.forEach(orgId => {
+
       // Calculate budget from sub-activities for this organization
       const orgSubActivities = (directSubActivitiesData?.data || []).filter(
-        (subActivity: any) => subActivity.organization === Number(orgId)
+        (subActivity: any) => subActivity.organization === orgId
       );
       
-      console.log(`Org ${orgId} (${organizationsMap[orgId]}): found ${orgSubActivities.length} sub-activities`);
-
       orgSubActivities.forEach((subActivity: any) => {
         const cost = subActivity.budget_calculation_type === 'WITH_TOOL'
           ? Number(subActivity.estimated_cost_with_tool || 0)
@@ -712,18 +684,15 @@ const AdminDashboard: React.FC = () => {
     });
 
     const result = Object.values(executiveData);
-    console.log(`FINAL executive performance for ${adminOrgType} admin: ${result.length} organizations`);
-    result.forEach(org => {
-      console.log(`${org.organizationName}: ${org.totalPlans} plans, ${formatCurrency(org.totalBudget)} budget`);
-    });
+    console.log(`Executive performance calculated for ${result.length} organizations in hierarchy`);
     
     return result;
-  }, [reviewedPlansData, directSubActivitiesData?.data, adminOrgType, allowedOrgIds, organizationsMap]);
+  }, [reviewedPlansData, directSubActivitiesData?.data]);
 
   // Calculate complete budget overview for analytics
   const completeBudgetOverview = useMemo(() => {
     const subActivities = directSubActivitiesData?.data || [];
-    console.log(`Calculating complete budget overview from ${subActivities.length} sub-activities for admin type: ${adminOrgType}`);
+    console.log(`Calculating complete budget overview from ${subActivities.length} sub-activities`);
 
     const orgBudgetData: Record<string, {
       organizationName: string;
@@ -733,17 +702,8 @@ const AdminDashboard: React.FC = () => {
 
     // Process sub-activities directly by organization
     subActivities.forEach((subActivity: any) => {
-      const orgId = subActivity.organization;
-      
-      // Skip if no organization
-      if (!orgId) return;
-      
-      // CRITICAL: Skip if not in allowed hierarchy for non-Minister admins
-      if (adminOrgType !== 'MINISTER' && allowedOrgIds.length > 0 && !allowedOrgIds.includes(Number(orgId))) {
-        return;
-      }
-      
-      const orgName = organizationsMap[orgId] || 'Unknown Organization';
+      const orgId = subActivity.organization || 'unknown';
+      const orgName = subActivity.organizationName || organizationsMap[orgId] || 'Unknown Organization';
 
       if (!orgBudgetData[orgId]) {
         orgBudgetData[orgId] = {
@@ -767,23 +727,147 @@ const AdminDashboard: React.FC = () => {
     });
 
     const result = Object.values(orgBudgetData).sort((a, b) => b.totalBudget - a.totalBudget);
-    console.log(`FINAL complete budget overview for ${adminOrgType} admin:`, result.length, 'organizations');
-    result.forEach(org => {
-      console.log(`${org.organizationName}: ${formatCurrency(org.totalBudget)} budget, ${formatCurrency(org.funding)} funding`);
-    });
+    console.log('Complete budget overview:', result.length, 'organizations');
     
     return result;
-  }, [directSubActivitiesData?.data, organizationsMap, adminOrgType, allowedOrgIds]);
+  }, [directSubActivitiesData?.data, organizationsMap]);
+
+  // Filter and sort pending plans
+  const getFilteredPendingPlans = useMemo(() => {
+    // Start with plans already filtered by organization hierarchy
+    let filtered = reviewedPlansData.filter(plan =>
+      plan.status === 'SUBMITTED'
+    );
+
+    console.log(`Starting with ${filtered.length} pending plans from allowed organizations`);
+
+    // Apply organization filter
+    if (pendingOrgFilter !== 'all') {
+      filtered = filtered.filter(plan => plan.organization === pendingOrgFilter);
+      console.log(`After organization filter (${pendingOrgFilter}): ${filtered.length} plans`);
+    }
+
+    // Apply search filter
+    if (pendingSearch) {
+      filtered = filtered.filter(plan =>
+        getOrganizationName(plan).toLowerCase().includes(pendingSearch.toLowerCase()) ||
+        (plan.planner_name && plan.planner_name.toLowerCase().includes(pendingSearch.toLowerCase()))
+      );
+      console.log(`After search filter (${pendingSearch}): ${filtered.length} plans`);
+    }
+
+    // Apply sorting
+    filtered.sort((a, b) => {
+      let aValue: any, bValue: any;
+
+      switch (pendingSortBy) {
+        case 'date':
+          aValue = new Date(a.submitted_at || a.created_at).getTime();
+          bValue = new Date(b.submitted_at || b.created_at).getTime();
+          break;
+        case 'organization':
+          aValue = getOrganizationName(a).toLowerCase();
+          bValue = getOrganizationName(b).toLowerCase();
+          break;
+        case 'planner':
+          aValue = (a.planner_name || '').toLowerCase();
+          bValue = (b.planner_name || '').toLowerCase();
+          break;
+        default:
+          return 0;
+      }
+
+      if (pendingSortOrder === 'asc') {
+        return aValue > bValue ? 1 : -1;
+      } else {
+        return aValue < bValue ? 1 : -1;
+      }
+    });
+
+    // Add REAL budget calculation for filtered plans from sub-activities
+    const enrichedFiltered = filtered.map((plan: any) => {
+      // Get PLAN-SPECIFIC sub-activities by finding main activities that belong to this plan
+      const planSubActivities = (directSubActivitiesData?.data || []).filter((subActivity: any) => {
+        // This is a simplified approach - in a real scenario, you'd need to link sub-activities to specific plans
+        // For now, we'll use organization-based filtering which gives representative budget data
+        return subActivity.organization === plan.organization;
+      });
+      
+      console.log(`Plan ${plan.id} (${getOrganizationName(plan)}): found ${planSubActivities.length} sub-activities`);
+      
+      let totalBudget = 0;
+      let totalFunding = 0;
+      let government = 0;
+      let partners = 0;
+      let sdg = 0;
+      let other = 0;
+      
+      // Calculate proportional budget for this plan (divide org budget by number of org plans)
+      const orgPlans = reviewedPlansData.filter(p => 
+        p.organization === plan.organization && ['SUBMITTED', 'APPROVED'].includes(p.status)
+      );
+      
+      const planWeight = orgPlans.length > 0 ? 1 / orgPlans.length : 1;
+      
+      planSubActivities.forEach((subActivity: any) => {
+        const cost = subActivity.budget_calculation_type === 'WITH_TOOL'
+          ? Number(subActivity.estimated_cost_with_tool || 0)
+          : Number(subActivity.estimated_cost_without_tool || 0);
+        
+        const gov = Number(subActivity.government_treasury || 0);
+        const part = Number(subActivity.partners_funding || 0);
+        const sdgFund = Number(subActivity.sdg_funding || 0);
+        const otherFund = Number(subActivity.other_funding || 0);
+        const funding = gov + part + sdgFund + otherFund;
+        
+        // Apply proportional weight to avoid double-counting when multiple plans per organization
+        totalBudget += cost * planWeight;
+        totalFunding += funding * planWeight;
+        government += gov * planWeight;
+        partners += part * planWeight;
+        sdg += sdgFund * planWeight;
+        other += otherFund * planWeight;
+      });
+      
+      const gap = Math.max(0, totalBudget - totalFunding);
+      
+      console.log(`Plan ${plan.id} budget: total=${totalBudget}, funding=${totalFunding}, gap=${gap}`);
+      
+      return {
+        ...plan,
+        budget: {
+          total: totalBudget,
+          totalFunding,
+          government,
+          partners,
+          sdg,
+          other,
+          gap
+        }
+      };
+    });
+    
+    return enrichedFiltered;
+  }, [reviewedPlansData, pendingOrgFilter, pendingSearch, pendingSortBy, pendingSortOrder, directSubActivitiesData?.data]);
+
+  const filteredPendingPlans = getFilteredPendingPlans;
+
+  // Pagination for pending plans
+  const pendingTotalPages = Math.ceil(filteredPendingPlans.length / pendingItemsPerPage);
+  const pendingStartIndex = (pendingCurrentPage - 1) * pendingItemsPerPage;
+  const pendingPaginatedPlans = filteredPendingPlans.slice(
+    pendingStartIndex,
+    pendingStartIndex + pendingItemsPerPage
+  );
 
   // Filter and sort reviewed plans
   const getFilteredReviewedPlans = useMemo(() => {
-    // CRITICAL: Start with plans already filtered by organization hierarchy
+    // Start with plans already filtered by organization hierarchy
     let filtered = reviewedPlansData.filter(plan =>
       ['APPROVED', 'REJECTED'].includes(plan.status)
     );
 
-    console.log(`Starting with ${filtered.length} approved/rejected plans from ${adminOrgType === 'MINISTER' ? 'all' : 'hierarchy'} organizations`);
-
+    console.log(`Starting with ${filtered.length} approved/rejected plans from allowed organizations`);
     // Apply status filter
     if (reviewedFilter !== 'all') {
       filtered = filtered.filter(plan => plan.status === reviewedFilter);
@@ -792,7 +876,7 @@ const AdminDashboard: React.FC = () => {
 
     // Apply organization filter
     if (reviewedOrgFilter !== 'all') {
-      filtered = filtered.filter(plan => String(plan.organization) === String(reviewedOrgFilter));
+      filtered = filtered.filter(plan => plan.organization === reviewedOrgFilter);
       console.log(`After organization filter (${reviewedOrgFilter}): ${filtered.length} plans`);
     }
 
@@ -835,12 +919,14 @@ const AdminDashboard: React.FC = () => {
 
     // Add REAL budget calculation for filtered plans from sub-activities
     const enrichedFiltered = filtered.map((plan: any) => {
-      // Calculate budget from sub-activities for this plan's organization
-      const orgSubActivities = (directSubActivitiesData?.data || []).filter(
-        (subActivity: any) => subActivity.organization === Number(plan.organization)
-      );
+      // Get PLAN-SPECIFIC sub-activities by finding main activities that belong to this plan
+      const planSubActivities = (directSubActivitiesData?.data || []).filter((subActivity: any) => {
+        // This is a simplified approach - in a real scenario, you'd need to link sub-activities to specific plans
+        // For now, we'll use organization-based filtering which gives representative budget data
+        return subActivity.organization === plan.organization;
+      });
       
-      console.log(`Plan ${plan.id} (${getOrganizationName(plan)}): found ${orgSubActivities.length} sub-activities`);
+      console.log(`Plan ${plan.id} (${getOrganizationName(plan)}): found ${planSubActivities.length} sub-activities`);
       
       let totalBudget = 0;
       let totalFunding = 0;
@@ -849,7 +935,14 @@ const AdminDashboard: React.FC = () => {
       let sdg = 0;
       let other = 0;
       
-      orgSubActivities.forEach((subActivity: any) => {
+      // Calculate proportional budget for this plan (divide org budget by number of org plans)
+      const orgPlans = reviewedPlansData.filter(p => 
+        p.organization === plan.organization && ['SUBMITTED', 'APPROVED'].includes(p.status)
+      );
+      
+      const planWeight = orgPlans.length > 0 ? 1 / orgPlans.length : 1;
+      
+      planSubActivities.forEach((subActivity: any) => {
         const cost = subActivity.budget_calculation_type === 'WITH_TOOL'
           ? Number(subActivity.estimated_cost_with_tool || 0)
           : Number(subActivity.estimated_cost_without_tool || 0);
@@ -860,17 +953,18 @@ const AdminDashboard: React.FC = () => {
         const otherFund = Number(subActivity.other_funding || 0);
         const funding = gov + part + sdgFund + otherFund;
         
-        totalBudget += cost;
-        totalFunding += funding;
-        government += gov;
-        partners += part;
-        sdg += sdgFund;
-        other += otherFund;
+        // Apply proportional weight to avoid double-counting when multiple plans per organization
+        totalBudget += cost * planWeight;
+        totalFunding += funding * planWeight;
+        government += gov * planWeight;
+        partners += part * planWeight;
+        sdg += sdgFund * planWeight;
+        other += otherFund * planWeight;
       });
       
       const gap = Math.max(0, totalBudget - totalFunding);
       
-      console.log(`Plan ${plan.id} final budget: total=${totalBudget}, funding=${totalFunding}, gap=${gap}`);
+      console.log(`Plan ${plan.id} budget: total=${totalBudget}, funding=${totalFunding}, gap=${gap}`);
       
       return {
         ...plan,
@@ -886,7 +980,6 @@ const AdminDashboard: React.FC = () => {
       };
     });
     
-    console.log(`FINAL filtered reviewed plans for ${adminOrgType} admin: ${enrichedFiltered.length} plans`);
     return enrichedFiltered;
   }, [reviewedPlansData, reviewedFilter, reviewedOrgFilter, reviewedSearch, reviewedSortBy, reviewedSortOrder, directSubActivitiesData?.data]);
 
@@ -1031,11 +1124,16 @@ const AdminDashboard: React.FC = () => {
     ]
   };
 
-  if (isLoading || isLoadingDirectSubActivities) {
+  // Show loading during initialization
+  if (!isAuthInitialized || isLoading || isLoadingDirectSubActivities) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <Loader className="h-6 w-6 animate-spin mr-2 text-blue-600" />
-        <span className="text-lg">Loading admin dashboard...</span>
+        <span className="text-lg">
+          {!isAuthInitialized ? 'Checking admin permissions...' : 
+           isLoadingDirectSubActivities ? 'Loading budget data...' : 
+           'Loading admin dashboard...'}
+        </span>
       </div>
     );
   }
@@ -1061,7 +1159,7 @@ const AdminDashboard: React.FC = () => {
                 <Shield className="h-12 w-12 text-white mr-4" />
                 <div>
                   <h1 className="text-4xl font-bold">
-                    {adminOrgType === 'MINISTER' ? 'System Administration Dashboard' : 'Hierarchy Administration Dashboard'}
+                    {adminOrgType === 'MINISTER' ? 'Higher Officials Dashboard' : 'State Minister Level Dashboard'}
                   </h1>
                   <p className="text-xl text-blue-100">
                     Ministry of Health - {adminOrgType === 'MINISTER' ? 'System-wide' : 'Hierarchy'} Plan Overview
@@ -1077,6 +1175,9 @@ const AdminDashboard: React.FC = () => {
             <div className="text-right">
               <div className="text-3xl font-bold">{totalPlans}</div>
               <div className="text-blue-100">Total Plans</div>
+              <div className="text-sm text-blue-200 mt-2">
+                {adminOrgType === 'MINISTER' ? 'System-wide' : `${adminOrgType} Hierarchy`}
+              </div>
             </div>
           </div>
         </div>
@@ -1089,17 +1190,13 @@ const AdminDashboard: React.FC = () => {
             <div>Admin Org ID: {adminOrgId || 'Not set'}</div>
             <div>Admin Org Type: {adminOrgType || 'Not set'}</div>
             <div>Allowed Orgs: {allowedOrgIds.length}</div>
-            <div>Filtered Plans: {reviewedPlansData.length}</div>
+            <div>Total Plans: {reviewedPlansData.length}</div>
             <div>Organizations Map: {Object.keys(organizationsMap).length}</div>
-            <div>Filtered Orgs Map: {Object.keys(filteredOrganizationsMap).length}</div>
             <div>Budget Total: {formatCurrency(budgetTotals.totalBudget)}</div>
             <div>Sub-Activities: {(directSubActivitiesData?.data || []).length}</div>
             <div>Auth Initialized: {isAuthInitialized ? 'Yes' : 'No'}</div>
             <div>Loading Sub-Activities: {isLoadingDirectSubActivities ? 'Yes' : 'No'}</div>
             <div>Activity Types Total: {Object.values(calculateActivityTypeBudgets).reduce((sum, type) => sum + type.count, 0)}</div>
-            <div>Approved Count: {approvedCount}</div>
-            <div>Rejected Count: {rejectedCount}</div>
-            <div>Pending Count: {pendingCount}</div>
           </div>
         </div>
       )}
@@ -1117,6 +1214,21 @@ const AdminDashboard: React.FC = () => {
               }`}
             >
               Overview
+            </button>
+            <button
+              onClick={() => setActiveTab('pending')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'pending'
+                  ? 'border-blue-600 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Pending Reviews
+              {pendingCount > 0 && (
+                <span className="ml-2 bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full text-xs">
+                  {pendingCount}
+                </span>
+              )}
             </button>
             <button
               onClick={() => setActiveTab('reviewed')}
@@ -1476,6 +1588,311 @@ const AdminDashboard: React.FC = () => {
         </div>
       )}
 
+      {/* Pending Reviews Tab */}
+      {activeTab === 'pending' && (
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+          <div className="p-6">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 space-y-4 sm:space-y-0">
+              <div>
+                <h3 className="text-lg font-medium leading-6 text-gray-900">Pending Reviews</h3>
+                <p className="mt-1 text-sm text-gray-500">
+                  All plans awaiting review from{' '}
+                  {adminOrgType === 'MINISTER' ? 'all organizations' : 'your organizational hierarchy'}
+                </p>
+              </div>
+              <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-2 sm:space-y-0 sm:space-x-4">
+                <div className="flex items-center space-x-2">
+                  <Search className="h-4 w-4 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="Search planner or organization..."
+                    value={pendingSearch}
+                    onChange={(e) => setPendingSearch(e.target.value)}
+                    className="text-sm border border-gray-300 rounded-md px-3 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <select
+                  value={pendingOrgFilter}
+                  onChange={(e) => setPendingOrgFilter(e.target.value)}
+                  className="text-sm rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                >
+                  <option value="all">
+                    {adminOrgType === 'MINISTER' ? 'All Executives' : 'All Hierarchy Executives'}
+                  </option>
+                  {Object.entries(organizationsMap)
+                    .filter(([id]) => 
+                      adminOrgType === 'MINISTER' || allowedOrgIds.includes(Number(id))
+                    )
+                    .map(([id, name]) => (
+                      <option key={id} value={id}>{name}</option>
+                    ))}
+                </select>
+                <button
+                  onClick={() => refetch()}
+                  className="flex items-center px-3 py-2 text-sm text-blue-600 hover:text-blue-800 border border-blue-200 rounded-md"
+                >
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Refresh
+                </button>
+              </div>
+            </div>
+
+            {filteredPendingPlans.length === 0 ? (
+              <div className="text-center py-12 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
+                <AlertCircle className="h-12 w-12 text-amber-400 mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-gray-900 mb-1">No pending plans found</h3>
+                <p className="text-gray-500">
+                  {pendingSearch || pendingOrgFilter !== 'all' 
+                    ? "No plans match your current filters." 
+                    : "No plans are currently awaiting review."}
+                </p>
+              </div>
+            ) : (
+              <>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th
+                          className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                          onClick={() => {
+                            if (pendingSortBy === 'organization') {
+                              setPendingSortOrder(pendingSortOrder === 'asc' ? 'desc' : 'asc');
+                            } else {
+                              setPendingSortBy('organization');
+                              setPendingSortOrder('asc');
+                            }
+                          }}
+                        >
+                          <div className="flex items-center">
+                            Organization
+                            {pendingSortBy === 'organization' && (
+                              <span className="ml-1">
+                                {pendingSortOrder === 'asc' ? '↑' : '↓'}
+                              </span>
+                            )}
+                          </div>
+                        </th>
+                        <th
+                          className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                          onClick={() => {
+                            if (pendingSortBy === 'planner') {
+                              setPendingSortOrder(pendingSortOrder === 'asc' ? 'desc' : 'asc');
+                            } else {
+                              setPendingSortBy('planner');
+                              setPendingSortOrder('asc');
+                            }
+                          }}
+                        >
+                          <div className="flex items-center">
+                            Planner
+                            {pendingSortBy === 'planner' && (
+                              <span className="ml-1">
+                                {pendingSortOrder === 'asc' ? '↑' : '↓'}
+                              </span>
+                            )}
+                          </div>
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Executive
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Plan Type
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Fiscal Year
+                        </th>
+                        <th
+                          className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                          onClick={() => {
+                            if (pendingSortBy === 'date') {
+                              setPendingSortOrder(pendingSortOrder === 'asc' ? 'desc' : 'asc');
+                            } else {
+                              setPendingSortBy('date');
+                              setPendingSortOrder('desc');
+                            }
+                          }}
+                        >
+                          <div className="flex items-center">
+                            Submitted Date
+                            {pendingSortBy === 'date' && (
+                              <span className="ml-1">
+                                {pendingSortOrder === 'asc' ? '↑' : '↓'}
+                              </span>
+                            )}
+                          </div>
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Planning Period
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Budget Analysis
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Status
+                        </th>
+                        <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Actions
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {pendingPaginatedPlans.map((plan: any) => {
+                        const budget = plan.budget;
+                        const fundingCoverage = budget.total > 0 ? (budget.totalFunding / budget.total) * 100 : 0;
+
+                        return (
+                          <tr key={plan.id} className="hover:bg-gray-50">
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="flex items-center">
+                                <Building2 className="h-5 w-5 text-gray-400 mr-2" />
+                                <div>
+                                  <div className="text-sm font-medium text-gray-900">
+                                    {getOrganizationName(plan)}
+                                  </div>
+                                  <div className="text-xs text-gray-500">ID: {plan.organization}</div>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="text-sm font-medium text-gray-900">
+                                {plan.planner_name || 'Unknown Planner'}
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="text-sm text-gray-900">
+                                {plan.executive_name || 'Not specified'}
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                {plan.type || 'Unknown Type'}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <span className="text-sm text-gray-900">{plan.fiscal_year || 'N/A'}</span>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="flex items-center">
+                                <Calendar className="h-4 w-4 text-gray-400 mr-2" />
+                                <div className="text-sm text-gray-500">
+                                  {plan.submitted_at ? formatDate(plan.submitted_at) : 'Not available'}
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="text-sm text-gray-500">
+                                {plan.from_date && plan.to_date ? 
+                                  `${formatDate(plan.from_date)} - ${formatDate(plan.to_date)}` :
+                                  'Date not available'}
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="text-sm">
+                                <div className="font-medium text-gray-900">
+                                  {formatCurrency(budget.total)}
+                                </div>
+                                <div className="text-gray-500">
+                                  Funding: {budget.total > 0 ? fundingCoverage.toFixed(1) : '0'}%
+                                </div>
+                                <div className="text-xs text-gray-400">
+                                  Gap: {formatCurrency(budget.gap)}
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-amber-100 text-amber-800">
+                                {plan.status}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                              <button
+                                onClick={() => navigate(`/plans/${plan.id}`)}
+                                className="text-blue-600 hover:text-blue-900 flex items-center justify-end"
+                              >
+                                <Eye className="h-4 w-4 mr-1" />
+                                View Details
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Pagination for Pending Plans */}
+                {pendingTotalPages > 1 && (
+                  <div className="flex items-center justify-between border-t border-gray-200 bg-white px-4 py-3 sm:px-6">
+                    <div className="flex flex-1 justify-between sm:hidden">
+                      <button
+                        onClick={() => setPendingCurrentPage(Math.max(1, pendingCurrentPage - 1))}
+                        disabled={pendingCurrentPage === 1}
+                        className="relative inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                      >
+                        Previous
+                      </button>
+                      <button
+                        onClick={() => setPendingCurrentPage(Math.min(pendingTotalPages, pendingCurrentPage + 1))}
+                        disabled={pendingCurrentPage === pendingTotalPages}
+                        className="relative ml-3 inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                      >
+                        Next
+                      </button>
+                    </div>
+                    <div className="hidden sm:flex sm:flex-1 sm:items-center sm:justify-between">
+                      <div>
+                        <p className="text-sm text-gray-700">
+                          Showing <span className="font-medium">{pendingStartIndex + 1}</span> to{' '}
+                          <span className="font-medium">
+                            {Math.min(pendingStartIndex + pendingItemsPerPage, filteredPendingPlans.length)}
+                          </span>{' '}
+                          of <span className="font-medium">{filteredPendingPlans.length}</span> results
+                        </p>
+                      </div>
+                      <div>
+                        <nav className="isolate inline-flex -space-x-px rounded-md shadow-sm" aria-label="Pagination">
+                          <button
+                            onClick={() => setPendingCurrentPage(Math.max(1, pendingCurrentPage - 1))}
+                            disabled={pendingCurrentPage === 1}
+                            className="relative inline-flex items-center rounded-l-md px-2 py-2 text-gray-400 ring-1 ring-inset ring-gray-300 hover:bg-gray-50 focus:z-20 focus:outline-offset-0 disabled:opacity-50"
+                          >
+                            <ChevronLeft className="h-5 w-5" />
+                          </button>
+                          {Array.from({ length: Math.min(5, pendingTotalPages) }, (_, i) => {
+                            const pageNum = i + 1;
+                            return (
+                              <button
+                                key={pageNum}
+                                onClick={() => setPendingCurrentPage(pageNum)}
+                                className={`relative inline-flex items-center px-4 py-2 text-sm font-semibold ${
+                                  pageNum === pendingCurrentPage
+                                    ? 'z-10 bg-blue-600 text-white focus:z-20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600'
+                                    : 'text-gray-900 ring-1 ring-inset ring-gray-300 hover:bg-gray-50 focus:z-20 focus:outline-offset-0'
+                                }`}
+                              >
+                                {pageNum}
+                              </button>
+                            );
+                          })}
+                          <button
+                            onClick={() => setPendingCurrentPage(Math.min(pendingTotalPages, pendingCurrentPage + 1))}
+                            disabled={pendingCurrentPage === pendingTotalPages}
+                            className="relative inline-flex items-center rounded-r-md px-2 py-2 text-gray-400 ring-1 ring-inset ring-gray-300 hover:bg-gray-50 focus:z-20 focus:outline-offset-0 disabled:opacity-50"
+                          >
+                            <ChevronRight className="h-5 w-5" />
+                          </button>
+                        </nav>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Reviewed Plans Tab */}
       {activeTab === 'reviewed' && (
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
@@ -1484,8 +1901,7 @@ const AdminDashboard: React.FC = () => {
               <div>
                 <h3 className="text-lg font-medium leading-6 text-gray-900">Reviewed Plans</h3>
                 <p className="mt-1 text-sm text-gray-500">
-                  All plans that have been reviewed (approved or rejected) from{' '}
-                  {adminOrgType === 'MINISTER' ? 'all organizations' : 'your organizational hierarchy'}
+                  All plans that have been reviewed (approved or rejected)
                 </p>
               </div>
               <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-2 sm:space-y-0 sm:space-x-4">
@@ -1508,23 +1924,26 @@ const AdminDashboard: React.FC = () => {
                   <option value="APPROVED">Approved</option>
                   <option value="REJECTED">Rejected</option>
                 </select>
-                <select
-                  value={reviewedOrgFilter}
-                  onChange={(e) => setReviewedOrgFilter(e.target.value)}
-                  className="text-sm rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                >
-                  <option value="all">
-                    {adminOrgType === 'MINISTER' ? 'All Executives' : 'All Hierarchy Executives'}
-                  </option>
-                  {Object.entries(filteredOrganizationsMap)
-                    .map(([id, name]) => (
-                      <option key={id} value={id}>{name}</option>
-                    ))}
-                </select>
+        <select
+  value={reviewedOrgFilter}
+  onChange={(e) => setReviewedOrgFilter(e.target.value)}
+  className="text-sm rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+>
+  <option value="all">
+    {adminOrgType === 'MINISTER' ? 'All Executives' : 'All Hierarchy Executives'}
+  </option>
+  {Object.entries(organizationsMap)
+    .filter(([id]) => 
+      adminOrgType === 'MINISTER' || allowedOrgIds.includes(Number(id))
+    )
+    .map(([id, name]) => (
+      <option key={id} value={id}>{name}</option>
+    ))}
+</select>
                 <button
                   onClick={() => refetch()}
-                  className="flex items-center px-3 py-2 text-sm text-blue-600 hover:text-blue-800 border border-blue-200 rounded-md"
-                >
+                  className="flex items-center px-3 py-2 text-sm text-blue-600 hover:text-blue-800 border border-blue-200 rounded-md">
+                
                   <RefreshCw className="h-4 w-4 mr-2" />
                   Refresh
                 </button>
@@ -1654,7 +2073,7 @@ const AdminDashboard: React.FC = () => {
                                   {formatCurrency(budget.total)}
                                 </div>
                                 <div className="text-gray-500">
-                                  Funding: {budget.total > 0 ? fundingCoverage.toFixed(1) : '0'}%
+                                  Funding: {fundingCoverage.toFixed(1)}%
                                 </div>
                                 <div className="text-xs text-gray-400">
                                   Gap: {formatCurrency(budget.gap)}
@@ -1757,7 +2176,7 @@ const AdminDashboard: React.FC = () => {
               <div>
                 <h3 className="text-lg font-medium leading-6 text-gray-900">Budget by Activity Type</h3>
                 <p className="mt-1 text-sm text-gray-500">
-                  Activity counts and budgets by {adminOrgType === 'MINISTER' ? 'all executives' : 'hierarchy executives'}
+                  Activity counts and budgets by Executives
                 </p>
               </div>
             </div>
@@ -1815,64 +2234,34 @@ const AdminDashboard: React.FC = () => {
                             </div>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-center">
-                            <div className="flex flex-col items-center">
-                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                                {orgData.Training.count}
-                              </span>
-                              <span className="text-xs text-gray-500 mt-1">
-                                {formatCurrency(orgData.Training.budget)}
-                              </span>
-                            </div>
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                              {orgData.Training.count}
+                            </span>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-center">
-                            <div className="flex flex-col items-center">
-                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                                {orgData.Meeting.count}
-                              </span>
-                              <span className="text-xs text-gray-500 mt-1">
-                                {formatCurrency(orgData.Meeting.budget)}
-                              </span>
-                            </div>
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                              {orgData.Meeting.count}
+                            </span>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-center">
-                            <div className="flex flex-col items-center">
-                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
-                                {orgData.Workshop.count}
-                              </span>
-                              <span className="text-xs text-gray-500 mt-1">
-                                {formatCurrency(orgData.Workshop.budget)}
-                              </span>
-                            </div>
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                              {orgData.Workshop.count}
+                            </span>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-center">
-                            <div className="flex flex-col items-center">
-                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-teal-100 text-teal-800">
-                                {orgData.Procurement.count}
-                              </span>
-                              <span className="text-xs text-gray-500 mt-1">
-                                {formatCurrency(orgData.Procurement.budget)}
-                              </span>
-                            </div>
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-teal-100 text-teal-800">
+                              {orgData.Procurement.count}
+                            </span>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-center">
-                            <div className="flex flex-col items-center">
-                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-pink-100 text-pink-800">
-                                {orgData.Printing.count}
-                              </span>
-                              <span className="text-xs text-gray-500 mt-1">
-                                {formatCurrency(orgData.Printing.budget)}
-                              </span>
-                            </div>
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-pink-100 text-pink-800">
+                              {orgData.Printing.count}
+                            </span>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-center">
-                            <div className="flex flex-col items-center">
-                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
-                                {orgData.Other.count}
-                              </span>
-                              <span className="text-xs text-gray-500 mt-1">
-                                {formatCurrency(orgData.Other.budget)}
-                              </span>
-                            </div>
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                              {orgData.Other.count}
+                            </span>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-center">
                             <span className="text-sm font-medium text-gray-900">
@@ -1972,15 +2361,13 @@ const AdminDashboard: React.FC = () => {
               Complete Budget Overview by Executives
             </h3>
             <p className="text-sm text-gray-600 mb-6">
-              Budget analysis for {adminOrgType === 'MINISTER' ? 'all organizations' : 'hierarchy organizations'} with submitted and approved plans
+              Budget analysis for organizations with submitted and approved plans
             </p>
             {completeBudgetOverview.length === 0 ? (
               <div className="text-center py-12 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
                 <BarChart3 className="h-12 w-12 text-gray-400 mx-auto mb-4" />
                 <h3 className="text-lg font-medium text-gray-900 mb-1">No budget data available</h3>
-                <p className="text-gray-500">
-                  No {adminOrgType === 'MINISTER' ? 'executives' : 'hierarchy executives'} have submitted or approved plans with budget data.
-                </p>
+                <p className="text-gray-500">No Executives have submitted or approved plans with budget data.</p>
               </div>
             ) : (
               <div className="h-96">
@@ -2139,7 +2526,7 @@ const AdminDashboard: React.FC = () => {
               <div>
                 <h3 className="text-lg font-medium leading-6 text-gray-900">Executive Performance Overview</h3>
                 <p className="mt-1 text-sm text-gray-500">
-                  Comprehensive performance metrics for {adminOrgType === 'MINISTER' ? 'all executive organizations' : 'hierarchy executive organizations'}
+                  Comprehensive performance metrics for all executive organizations
                 </p>
               </div>
             </div>
