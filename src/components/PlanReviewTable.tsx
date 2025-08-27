@@ -24,6 +24,12 @@ const MONTHS = [
 // Helper function to check if a month is selected for an item
 const isMonthSelected = (item: any, monthValue: string): boolean => {
   try {
+    // CRITICAL FIX: Check if item exists and has the required properties
+    if (!item) {
+      console.error('isMonthSelected: item is null or undefined');
+      return false;
+    }
+    
     const selectedMonths = item.selected_months || [];
     const selectedQuarters = item.selected_quarters || [];
 
