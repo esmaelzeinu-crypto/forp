@@ -560,7 +560,7 @@ const AdminPlanSummary: React.FC = () => {
               toDate={plan.to_date || ''}
               planType={plan.type || 'LEO/EO Plan'}
               isViewOnly={true}
-              plannerOrgId={plan.organization ? Number(plan.organization) : null}
+              plannerOrgId={null}
             />
           </div>
         </div>

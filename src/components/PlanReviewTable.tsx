@@ -254,14 +254,46 @@ const PlanReviewTable: React.FC<PlanReviewTableProps> = ({
           const performanceMeasures = (initiative.performance_measures || []).filter(measure => {
             if (!measure) return false;
             
-            // ADMIN FIX: Show ALL performance measures when viewing
+            // ADMIN FIX: Show ALL performance measures when viewing without plannerOrgId
+            if (isViewOnly && !plannerOrgId) {
+              console.log(`ADMIN VIEW (no org filter): Including ALL measure "${measure.name}"`);
+              return true;
+            }
+            
+            // For regular viewing with plannerOrgId, apply filtering  
+            if (plannerOrgId) {
+              const belongsToTargetOrg = measure.organization && Number(measure.organization) === Number(plannerOrgId);
+              const hasNoOrg = !measure.organization || measure.organization === null;
+              const shouldInclude = belongsToTargetOrg || hasNoOrg;
+              
+              console.log(`FILTERED VIEW: Measure "${measure.name}": belongsToOrg=${belongsToTargetOrg}, hasNoOrg=${hasNoOrg}, include=${shouldInclude}`);
+              return shouldInclude;
+            }
+            
+            // Default: show all
             return true;
           });
 
           const mainActivities = (initiative.main_activities || []).filter(activity => {
             if (!activity) return false;
             
-            // ADMIN FIX: Show ALL main activities when viewing
+            // ADMIN FIX: Show ALL main activities when viewing without plannerOrgId
+            if (isViewOnly && !plannerOrgId) {
+              console.log(`ADMIN VIEW (no org filter): Including ALL activity "${activity.name}"`);
+              return true;
+            }
+            
+            // For regular viewing with plannerOrgId, apply filtering
+            if (plannerOrgId) {
+              const belongsToTargetOrg = activity.organization && Number(activity.organization) === Number(plannerOrgId);
+              const hasNoOrg = !activity.organization || activity.organization === null;
+              const shouldInclude = belongsToTargetOrg || hasNoOrg;
+              
+              console.log(`FILTERED VIEW: Activity "${activity.name}": belongsToOrg=${belongsToTargetOrg}, hasNoOrg=${hasNoOrg}, include=${shouldInclude}`);
+              return shouldInclude;
+            }
+            
+            // Default: show all
             return true;
           });
 
