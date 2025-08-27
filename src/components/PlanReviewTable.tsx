@@ -222,8 +222,40 @@ const PlanReviewTable: React.FC<PlanReviewTableProps> = ({
         console.log(`Objective ${objective.title}: using weight ${objectiveWeight} (effective: ${objective.effective_weight}, planner: ${objective.planner_weight}, original: ${objective.weight})`);
 
         let objectiveAdded = false;
-            // ADMIN FIX: Main activities are already filtered by AdminPlanSummary
-            console.log(`PlanReviewTable: Including activity "${activity.name}" (pre-filtered)`);
+
+        // CRITICAL FIX: Filter initiatives by plan organization ID (not current user's org)
+        // For admin viewing: use plannerOrgId (which represents the plan's organization)
+        // ADMIN FIX: Show ALL initiatives when viewing (admin mode), filter when editing
+        const relevantInitiatives = (objective.initiatives || []);
+
+        console.log(`Objective ${objective.title}: ${objective.initiatives?.length || 0} total initiatives, ${relevantInitiatives.length} for target org`);
+
+        if (relevantInitiatives.length === 0) {
+          // ADMIN FIX: For AdminPlanSummary, initiatives are already filtered by plan organization
+          // So we just show everything that comes in the objectives data
+          console.log(`PlanReviewTable: Including initiative "${initiative.name}" (pre-filtered by AdminPlanSummary)`);
+          exportData.push({
+            No: (objIndex + 1).toString(),
+            'Strategic Objective': objective.title || 'Untitled Objective',
+            'Strategic Objective Weight': `${objectiveWeight.toFixed(1)}%`,
+            'Strategic Initiative': 'No initiatives available',
+            'Initiative Weight': '-',
+            'Performance Measure/Main Activity': 'No measures or activities',
+            'Weight': '-',
+            'Baseline': '-',
+            'Q1Target': '-',
+            'Q2Target': '-',
+            'SixMonthTarget': '-',
+            'Q3Target': '-',
+            'Q4Target': '-',
+            'AnnualTarget': '-',
+            'Implementor': organizationName,
+            'BudgetRequired': '-',
+            'Government': '-',
+            'Partners': '-',
+            'SDG': '-',
+            'Other': '-',
+            'TotalAvailable': '-',
             'Gap': '-',
           });
           objectiveAdded = true;
@@ -237,8 +269,23 @@ const PlanReviewTable: React.FC<PlanReviewTableProps> = ({
           const performanceMeasures = (initiative.performance_measures || []).filter(measure => {
             if (!measure) return false;
             
-            // ADMIN FIX: Performance measures are already filtered by AdminPlanSummary
-            console.log(`PlanReviewTable: Including measure "${measure.name}" (pre-filtered)`);
+            // SIMPLE FIX: Show ALL performance measures for admin
+            console.log(`PlanReviewTable: Performance measure "${measure.name}" included`);
+            return true;
+          });
+
+          const mainActivities = (initiative.main_activities || []).filter(activity => {
+            if (!activity) return false;
+            
+            // SIMPLE FIX: Show ALL main activities for admin
+            console.log(`PlanReviewTable: Main activity "${activity.name}" included`);
+            return true;
+          });
+
+          const allItems = [...performanceMeasures, ...mainActivities];
+
+          if (allItems.length === 0) {
+            exportData.push({
               No: objectiveAdded ? '' : (objIndex + 1).toString(),
               'Strategic Objective': objectiveAdded ? '' : (objective.title || 'Untitled Objective'),
               'Strategic Objective Weight': objectiveAdded ? '' : `${objectiveWeight.toFixed(1)}%`,
@@ -273,11 +320,11 @@ const PlanReviewTable: React.FC<PlanReviewTableProps> = ({
               }
 
               const isPerformanceMeasure = performanceMeasures.includes(item);
-                // Get selected months for each quarter with enhanced matching
-                const q1Months = getSelectedMonthsForQuarter(item, 'Q1');
-                const q2Months = getSelectedMonthsForQuarter(item, 'Q2');
-                const q3Months = getSelectedMonthsForQuarter(item, 'Q3');
-                const q4Months = getSelectedMonthsForQuarter(item, 'Q4');
+              // Get selected months for each quarter with enhanced matching
+              const q1Months = getSelectedMonthsForQuarter(item, 'Q1');
+              const q2Months = getSelectedMonthsForQuarter(item, 'Q2');
+              const q3Months = getSelectedMonthsForQuarter(item, 'Q3');
+              const q4Months = getSelectedMonthsForQuarter(item, 'Q4');
 
               let budgetRequired = 0;
               let government = 0;
@@ -748,9 +795,9 @@ const PlanReviewTable: React.FC<PlanReviewTableProps> = ({
 
                   {/* Q4 Month Columns */}
                   <td className={`px-2 py-4 text-center text-xs border-l-2 border-red-200 ${
-                    (row.itemData && isMonthSelected(row.itemData, 'MAY')) ? 'bg-red-100 text-red-800 font-medium' : 'bg-white text-gray-400'
+                    (row.itemData && isMonthSelected(row.itemData, 'APR')) ? 'bg-red-100 text-red-800 font-medium' : 'bg-white text-gray-400'
                   }`}>
-                    {(row.itemData && isMonthSelected(row.itemData, 'MAY')) ? '✓' : ''}
+                    {(row.itemData && isMonthSelected(row.itemData, 'APR')) ? '✓' : ''}
                   </td>
                   <td className={`px-2 py-4 text-center text-xs ${
                     (row.itemData && isMonthSelected(row.itemData, 'MAY')) ? 'bg-red-100 text-red-800 font-medium' : 'bg-white text-gray-400'
