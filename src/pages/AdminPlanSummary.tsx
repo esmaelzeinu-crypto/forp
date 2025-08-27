@@ -33,8 +33,8 @@ const AdminPlanSummary: React.FC = () => {
         
         const plan = planResponse.data;
         
-        // ADMIN FIX: Fetch complete objectives data without organization restrictions
-        if (plan.selected_objectives && Array.isArray(plan.selected_objectives)) {
+        // ADMIN FIX: Fetch complete data without any organization restrictions
+        if (plan.selected_objectives && Array.isArray(plan.selected_objectives) && plan.selected_objectives.length > 0) {
           console.log('AdminPlanSummary: Fetching complete objectives for plan organization:', plan.organization);
           
           try {
@@ -51,7 +51,7 @@ const AdminPlanSummary: React.FC = () => {
                 
                 console.log(`AdminPlanSummary: Processing objective "${objective.title}" with ${objective.initiatives?.length || 0} initiatives`);
                 
-                // Get all initiatives for this objective (no filtering)
+                // Get ALL initiatives for this objective without any filtering
                 const initiativesResponse = await api.get('/strategic-initiatives/', {
                   params: { strategic_objective: objId }
                 });
@@ -64,13 +64,13 @@ const AdminPlanSummary: React.FC = () => {
                   allInitiatives.map(async (initiative: any) => {
                     console.log(`AdminPlanSummary: Processing initiative "${initiative.name}" (ID: ${initiative.id})`);
                     
-                    // Get performance measures for this initiative (no org filtering)
+                    // Get ALL performance measures for this initiative without filtering
                     const measuresResponse = await api.get('/performance-measures/', {
                       params: { initiative: initiative.id }
                     });
                     const measures = measuresResponse.data?.results || measuresResponse.data || [];
                     
-                    // Get main activities for this initiative (no org filtering)  
+                    // Get ALL main activities for this initiative without filtering
                     const activitiesResponse = await api.get('/main-activities/', {
                       params: { initiative: initiative.id }
                     });
@@ -127,7 +127,11 @@ const AdminPlanSummary: React.FC = () => {
             
           } catch (error) {
             console.error('AdminPlanSummary: Error fetching complete data:', error);
+            // Don't fail completely - try to use what we have
+            console.log('AdminPlanSummary: Continuing with existing objectives data');
           }
+        } else {
+          console.log('AdminPlanSummary: No selected objectives found, using existing data');
         }
         
         // Apply selected objective weights
