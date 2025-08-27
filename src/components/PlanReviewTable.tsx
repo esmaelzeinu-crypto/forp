@@ -211,26 +211,29 @@ const PlanReviewTable: React.FC<PlanReviewTableProps> = ({
 
         let objectiveAdded = false;
 
-        // Filter initiatives by planner organization ID
-        const plannerInitiatives = (objective.initiatives || []).filter(initiative => {
+        // CRITICAL FIX: Filter initiatives by plan organization ID (not current user's org)
+        // For admin viewing: use plannerOrgId (which represents the plan's organization)
+        // For planner editing: use plannerOrgId (which represents their own organization)
+        const relevantInitiatives = (objective.initiatives || []).filter(initiative => {
           if (!initiative) return false;
 
           // Only include initiatives that belong to the planner's organization
-          // Exclude initiatives with no organization
-          const belongsToPlannerOrg = plannerOrgId && initiative.organization &&
+          // Include initiatives that belong to the plan's organization (for viewing)
+          // OR planner's organization (for editing)
+          const belongsToTargetOrg = plannerOrgId && initiative.organization &&
                                     Number(initiative.organization) === Number(plannerOrgId);
 
           // Also include default initiatives (they belong to Ministry of Health)
           const isDefaultInitiative = initiative.is_default === true;
 
-          console.log(`Initiative ${initiative.name}: belongsToPlannerOrg=${belongsToPlannerOrg}, isDefault=${isDefaultInitiative}, org=${initiative.organization}, plannerOrg=${plannerOrgId}`);
+          console.log(`Initiative ${initiative.name}: belongsToTargetOrg=${belongsToTargetOrg}, isDefault=${isDefaultInitiative}, org=${initiative.organization}, targetOrg=${plannerOrgId}`);
 
-          return belongsToPlannerOrg || isDefaultInitiative;
+          return belongsToTargetOrg || isDefaultInitiative;
         });
 
-        console.log(`Objective ${objective.title}: ${objective.initiatives?.length || 0} total initiatives, ${plannerInitiatives.length} for planner org`);
+        console.log(`Objective ${objective.title}: ${objective.initiatives?.length || 0} total initiatives, ${relevantInitiatives.length} for target org`);
 
-        if (plannerInitiatives.length === 0) {
+        if (relevantInitiatives.length === 0) {
           exportData.push({
             No: objIndex + 1,
             'Strategic Objective': objective.title || 'Untitled Objective',
@@ -259,26 +262,27 @@ const PlanReviewTable: React.FC<PlanReviewTableProps> = ({
           return;
         }
 
-        plannerInitiatives.forEach((initiative) => {
+        relevantInitiatives.forEach((initiative) => {
           if (!initiative) return;
 
-          // Process performance measures and activities for planner's organization
+          // CRITICAL FIX: Process performance measures and activities for the target organization
+          // (plan's organization when viewing, planner's organization when editing)
           const performanceMeasures = (initiative.performance_measures || []).filter(measure => {
             if (!measure) return false;
-            const belongsToPlannerOrg = plannerOrgId && measure.organization &&
+            const belongsToTargetOrg = plannerOrgId && measure.organization &&
                                       Number(measure.organization) === Number(plannerOrgId);
-            // Only include measures that belong to planner's organization or have no organization
+            // Include measures that belong to target organization or have no organization
             const hasNoOrg = !measure.organization || measure.organization === null;
-            return belongsToPlannerOrg || hasNoOrg;
+            return belongsToTargetOrg || hasNoOrg;
           });
 
           const mainActivities = (initiative.main_activities || []).filter(activity => {
             if (!activity) return false;
-            const belongsToPlannerOrg = plannerOrgId && activity.organization &&
+            const belongsToTargetOrg = plannerOrgId && activity.organization &&
                                       Number(activity.organization) === Number(plannerOrgId);
-            // Only include activities that belong to planner's organization or have no organization
+            // Include activities that belong to target organization or have no organization
             const hasNoOrg = !activity.organization || activity.organization === null;
-            return belongsToPlannerOrg || hasNoOrg;
+            return belongsToTargetOrg || hasNoOrg;
           });
 
           const allItems = [...performanceMeasures, ...mainActivities];
@@ -371,6 +375,7 @@ const PlanReviewTable: React.FC<PlanReviewTableProps> = ({
                 ? 'Ministry of Health (Default)'
                 : (initiative.organization_name ||
                    (initiative.organization && organizationsMap[String(initiative.organization)]) ||
+                   // CRITICAL FIX: Use the organization name from the plan context for proper display
                    organizationName ||
                    'Ministry of Health');
 
@@ -602,9 +607,14 @@ const PlanReviewTable: React.FC<PlanReviewTableProps> = ({
             <h3 className="text-lg font-medium text-gray-900">Plan Details Table</h3>
             <div className="text-sm text-gray-600">
               Showing {processedData.length} rows from {objectives.length} selected objectives
-              {plannerOrgId && (
+              {plannerOrgId && !isViewOnly && (
                 <span className="block mt-1">
-                  Filtered for Organization ID: {plannerOrgId} ({organizationName})
+                  Editing for Organization ID: {plannerOrgId} ({organizationName})
+                </span>
+              )}
+              {plannerOrgId && isViewOnly && (
+                <span className="block mt-1">
+                  Viewing plan for Organization: {organizationName} (ID: {plannerOrgId})
                 </span>
               )}
             </div>
