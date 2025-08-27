@@ -157,6 +157,8 @@ const AdminPlanSummary: React.FC = () => {
                             const subResp = await api.get(`/sub-activities/?main_activity=${activity.id}`);
                             const subs = subResp.data?.results || subResp.data || [];
                             
+                            console.log(`AdminPlanSummary: Activity "${activity.name}": ${subs.length} sub-activities`);
+                            
                             return { ...activity, sub_activities: subs };
                           } catch (error) {
                             console.error(`Error getting subs for activity ${activity.id}:`, error);
@@ -199,6 +201,11 @@ const AdminPlanSummary: React.FC = () => {
           console.log(`AdminPlanSummary: Complete data assembled: ${validObjectives.length} objectives`);
           
           // Log final initiative counts for debugging
+              if (obj.initiatives) {
+                obj.initiatives.forEach((init: any) => {
+                  console.log(`  - Initiative: "${init.name}" with ${init.performance_measures?.length || 0} measures, ${init.main_activities?.length || 0} activities`);
+                });
+              }
           validObjectives.forEach((obj: any) => {
             console.log(`AdminPlanSummary FINAL: Objective "${obj.title}" has ${obj.initiatives?.length || 0} initiatives`);
           });
