@@ -99,6 +99,8 @@ const PlanSummary: React.FC = () => {
           } catch (orgError) {
             console.warn('Failed to fetch organization name:', orgError);
           }
+        } else {
+          console.log('PlanSummary: No selected objectives or organization found, using existing objectives data');
         }
         
         return { data: planData };
