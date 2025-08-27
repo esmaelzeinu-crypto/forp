@@ -42,49 +42,12 @@ const AdminPlanSummary: React.FC = () => {
                 const objective = objResp.data;
                 
                 console.log(`AdminPlanSummary: Processing objective "${objective.title}"`);
-                console.log(`AdminPlanSummary: Objective has ${objective.initiatives?.length || 0} initiatives from serializer`);
                 
                 // Get initiatives for this objective that belong to the PLAN'S organization
-                let allInitiatives = [];
+               const initResp = await api.get(`/strategic-initiatives/?strategic_objective=${objId}`);
+               const allInitiatives = initResp.data?.results || initResp.data || [];
                 
-                // Try the direct endpoint first
-                try {
-                  console.log(`AdminPlanSummary: Trying direct initiatives endpoint for objective ${objId}`);
-                  const initiativesResponse = await api.get('/strategic-initiatives/', {
-                    params: { strategic_objective: objId }
-                  });
-                  allInitiatives = initiativesResponse.data?.results || initiativesResponse.data || [];
-                  console.log(`AdminPlanSummary: Direct endpoint returned ${allInitiatives.length} initiatives`);
-                } catch (error) {
-                  console.error(`AdminPlanSummary: Direct endpoint failed:`, error);
-                }
-                
-                // If no initiatives found, try the serializer data first
-                if (allInitiatives.length === 0 && objective.initiatives && objective.initiatives.length > 0) {
-                  console.log(`AdminPlanSummary: Using initiatives from objective serializer: ${objective.initiatives.length}`);
-                  allInitiatives = objective.initiatives;
-                }
-                
-                // If still no initiatives, try without params
-                if (allInitiatives.length === 0) {
-                  try {
-                    console.log(`AdminPlanSummary: Trying to get all initiatives and filter manually`);
-                    const allInitiativesResponse = await api.get('/strategic-initiatives/');
-                    const allInits = allInitiativesResponse.data?.results || allInitiativesResponse.data || [];
-                    allInitiatives = allInits.filter((init: any) => 
-                      init.strategic_objective && Number(init.strategic_objective) === Number(objId)
-                    );
-                    console.log(`AdminPlanSummary: Manual filter found ${allInitiatives.length} initiatives for objective ${objId}`);
-                  } catch (error) {
-                    console.error(`AdminPlanSummary: Manual filtering failed:`, error);
-                  }
-                }
-                
-                // Get ALL initiatives for this objective
-                const initResp = await api.get(`/strategic-initiatives/?strategic_objective=${objId}`);
-                const allInitiatives2 = initResp.data?.results || initResp.data || [];
-                
-                console.log(`AdminPlanSummary: API returned ${allInitiatives2.length} initiatives for objective ${objId}`);
+               console.log(`AdminPlanSummary: Found ${allInitiatives.length} total initiatives for objective ${objId}`);
                 
                 // CRITICAL: Filter initiatives to show only those belonging to the PLAN'S organization
                 const planOrgInitiatives = allInitiatives.filter((initiative: any) => {
@@ -174,18 +137,13 @@ const AdminPlanSummary: React.FC = () => {
                         performance_measures: planOrgMeasures,
                         main_activities: activitiesWithSubs
                       };
-                    } catch (error) {
-                      console.error(`AdminPlanSummary: Error processing initiative ${initiative.id}:`, error);
-                      return {
-                        ...initiative,
-                        performance_measures: [],
-                        main_activities: []
-                      };
+                      
+                      console.log(`AdminPlanSummary: Initiative "${initiative.name}" final: ${measures.length} measures, ${activitiesWithSubs.length} activities`);
                     }
                   })
                 );
                 
-                // CRITICAL: Make sure we return the objective with the processed initiatives
+                console.log(`AdminPlanSummary: Objective "${objective.title}" complete with ${enrichedInitiatives.length} initiatives`);
                 return {
                   ...objective,
                   initiatives: completeInitiatives
@@ -195,20 +153,9 @@ const AdminPlanSummary: React.FC = () => {
                 return null;
               }
             })
-          );
-          
-          const validObjectives = objectivesData.filter(obj => obj !== null);
-          console.log(`AdminPlanSummary: Complete data assembled: ${validObjectives.length} objectives`);
-          
-          // Log final initiative counts for debugging
-              if (obj.initiatives) {
-                obj.initiatives.forEach((init: any) => {
-                  console.log(`  - Initiative: "${init.name}" with ${init.performance_measures?.length || 0} measures, ${init.main_activities?.length || 0} activities`);
-                });
-              }
-          validObjectives.forEach((obj: any) => {
+          }
             console.log(`AdminPlanSummary FINAL: Objective "${obj.title}" has ${obj.initiatives?.length || 0} initiatives`);
-          });
+          plan.objectives = validObjectives;
           
           // Apply weights
           if (plan.selected_objectives_weights) {
@@ -310,10 +257,9 @@ const AdminPlanSummary: React.FC = () => {
                 partnersFunding += Number(subActivity.partners_funding || 0);
                 otherFunding += Number(subActivity.other_funding || 0);
                 
-                console.log(`AdminPlanSummary: Sub-activity "${subActivity.name}": Cost=${cost}, Gov=${subActivity.government_treasury}, SDG=${subActivity.sdg_funding}`);
               });
-            } else if (activity.budget) {
-              console.log(`AdminPlanSummary: Activity "${activity.name}" has legacy budget`);
+                  ...objective, 
+                  initiatives: enrichedInitiatives
               
               // Legacy budget
               const cost = activity.budget.budget_calculation_type === 'WITH_TOOL'
@@ -625,8 +571,30 @@ const AdminPlanSummary: React.FC = () => {
                 console.log(`  Objective: ${obj.title} has ${obj.initiatives?.length || 0} initiatives`);
               });
               return null;
+              } catch (error) {
+                console.error(`AdminPlanSummary: Error processing objective ${objId}:`, error);
+                return {
+                  ...objective,
+                  initiatives: []
+                };
+              }
+            })
+          );
+          
+          const validObjectives = objectivesData.filter(obj => obj !== null);
+          console.log(`AdminPlanSummary: Complete data assembled: ${validObjectives.length} objectives`);
+          
+          // Apply the custom weights if they exist
+          if (plan.selected_objectives_weights) {
+            validObjectives.forEach((obj: any) => {
+              const weightKey = obj.id?.toString();
+              const selectedWeight = plan.selected_objectives_weights[weightKey];
+              
+              if (selectedWeight !== undefined) {
+                obj.effective_weight = parseFloat(selectedWeight);
+                obj.planner_weight = parseFloat(selectedWeight);
+              }
             })()}
-            
             <PlanReviewTable
               objectives={plan.objectives}
               onSubmit={async () => {}}
