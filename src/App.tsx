@@ -13,6 +13,7 @@ const Login = React.lazy(() => import('./pages/Login'));
 const Dashboard = React.lazy(() => import('./pages/Dashboard'));
 const Planning = React.lazy(() => import('./pages/Planning'));
 const PlanSummary = React.lazy(() => import('./pages/PlanSummary'));
+const AdminPlanSummary = React.lazy(() => import('./pages/AdminPlanSummary'));
 const EvaluatorDashboard = React.lazy(() => import('./pages/EvaluatorDashboard'));
 const AdminDashboard = React.lazy(() => import('./pages/AdminDashboard'));
 const Profile = React.lazy(() => import('./pages/profile'));
@@ -61,6 +62,7 @@ function App() {
                 <Route path="/planning" element={<Planning />} />
                 {/* <Route path="/team-desk-planning" element={<TeamDeskPlanning />} /> */}
                 <Route path="/plans/:planId" element={<PlanSummary />} />
+               <Route path="/admin/plans/:planId" element={<AdminPlanSummary />} />
                 <Route path="/profile" element={<Profile />} />
                 <Route path="/evaluator" element={<EvaluatorDashboard />} />
                 <Route path="/admin" element={<AdminDashboard />} />

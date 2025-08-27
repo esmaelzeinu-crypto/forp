@@ -1807,7 +1807,7 @@ const AdminDashboard: React.FC = () => {
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                               <button
-                                onClick={() => navigate(`/plans/${plan.id}`)}
+                                onClick={() => navigate(`/admin/plans/${plan.id}`)}
                                 className="text-blue-600 hover:text-blue-900 flex items-center justify-end"
                               >
                                 <Eye className="h-4 w-4 mr-1" />
@@ -2082,7 +2082,7 @@ const AdminDashboard: React.FC = () => {
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                               <button
-                                onClick={() => navigate(`/plans/${plan.id}`)}
+                                onClick={() => navigate(`/admin/plans/${plan.id}`)}
                                 className="text-blue-600 hover:text-blue-900 flex items-center"
                               >
                                 <Eye className="h-4 w-4 mr-1" />
