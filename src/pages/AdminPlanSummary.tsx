@@ -38,7 +38,8 @@ const AdminPlanSummary: React.FC = () => {
               try {
                 console.log(`AdminPlanSummary: Processing objective ${objId}`);
                 
-                // Get objective
+                console.log(`AdminPlanSummary: Processing objective "${objective.title}"`);
+                console.log(`AdminPlanSummary: Objective has ${objective.initiatives?.length || 0} initiatives from serializer`);
                 const objResp = await api.get(`/strategic-objectives/${objId}/`);
                 const objective = objResp.data;
                 
@@ -46,7 +47,16 @@ const AdminPlanSummary: React.FC = () => {
                 const initResp = await api.get(`/strategic-initiatives/?strategic_objective=${objId}`);
                 const allInitiatives = initResp.data?.results || initResp.data || [];
                 
-                console.log(`AdminPlanSummary: Objective "${objective.title}" has ${allInitiatives.length} initiatives`);
+                console.log(`AdminPlanSummary: API returned ${allInitiatives.length} initiatives for objective ${objId}`);
+                
+                // CRITICAL: Use the fetched initiatives, not the ones from serializer
+                if (allInitiatives.length === 0) {
+                  console.warn(`AdminPlanSummary: No initiatives found for objective ${objId}`);
+                  return {
+                    ...objective,
+                    initiatives: []
+                  };
+                }
                 
                 // For each initiative, get ALL its data
                 const completeInitiatives = await Promise.all(
@@ -86,6 +96,7 @@ const AdminPlanSummary: React.FC = () => {
                   })
                 );
                 
+                // CRITICAL: Make sure we return the objective with the processed initiatives
                 return {
                   ...objective,
                   initiatives: completeInitiatives
@@ -95,6 +106,16 @@ const AdminPlanSummary: React.FC = () => {
                 return null;
               }
             })
+            
+            // Log final initiative counts for debugging
+            validObjectives.forEach((obj: any) => {
+              console.log(`AdminPlanSummary FINAL: Objective "${obj.title}" has ${obj.initiatives?.length || 0} initiatives`);
+              if (obj.initiatives) {
+                obj.initiatives.forEach((init: any) => {
+                  console.log(`  - Initiative: "${init.name}" with ${init.performance_measures?.length || 0} measures, ${init.main_activities?.length || 0} activities`);
+                });
+              }
+            });
           );
           
           const validObjectives = objectivesData.filter(obj => obj !== null);
@@ -414,8 +435,42 @@ const AdminPlanSummary: React.FC = () => {
           </div>
           <div>
             <p>Processed Objectives: {plan.objectives?.length || 0}</p>
-            <p>Total Initiatives: {plan.objectives?.reduce((sum: number, obj: any) => sum + (obj.initiatives?.length || 0), 0) || 0}</p>
+            <p>Total Initiatives: {(() => {
+              const total = plan.objectives?.reduce((sum: number, obj: any) => {
+                const initCount = obj.initiatives?.length || 0;
+                console.log(`Debug: Objective "${obj.title}" has ${initCount} initiatives`);
+                return sum + initCount;
+              }, 0) || 0;
+              console.log(`Debug: Final total initiatives: ${total}`);
+              return total;
+            })()}</p>
             <p>Total Measures: {budgetSummary.measuresCount}</p>
+            <p>Status: {plan.status}</p>
+            <p>Fetch Error: {planError ? 'Yes' : 'No'}</p>
+          </div>
+        </div>
+        
+        {/* Additional debug info */}
+        <div className="mt-3 text-xs text-yellow-600">
+          <p>Raw Objectives Data Check:</p>
+          {plan.objectives?.map((obj: any, idx: number) => (
+            <div key={idx} className="ml-4">
+              <p>• {obj.title}: {obj.initiatives?.length || 0} initiatives</p>
+              {obj.initiatives?.map((init: any, initIdx: number) => (
+                <div key={initIdx} className="ml-8">
+                  <p>  - {init.name}: {init.performance_measures?.length || 0} measures, {init.main_activities?.length || 0} activities</p>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+        
+        <div className="mt-3 text-xs text-yellow-600">
+          <p>Budget Calculation Debug:</p>
+          <div className="ml-4">
+            <p>• Activities Count: {budgetSummary.activitiesCount}</p>
+            <p>• Measures Count: {budgetSummary.measuresCount}</p>
+            <p>• Total Required: ETB {budgetSummary.totalRequired}</p>
           </div>
         </div>
       </div>

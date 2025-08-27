@@ -219,8 +219,6 @@ const PlanReviewTable: React.FC<PlanReviewTableProps> = ({
         console.log(`Objective ${objective.title}: ${objective.initiatives?.length || 0} total initiatives, ${relevantInitiatives.length} for target org`);
 
         if (relevantInitiatives.length === 0) {
-          // SIMPLE ADMIN FIX: If plannerOrgId is null (admin mode), show ALL
-          console.log(`PlanReviewTable: Initiative "${initiative.name}" - plannerOrgId=${plannerOrgId}, isViewOnly=${isViewOnly}`);
           exportData.push({
             No: (objIndex + 1).toString(),
             'Strategic Objective': objective.title || 'Untitled Objective',
@@ -304,11 +302,11 @@ const PlanReviewTable: React.FC<PlanReviewTableProps> = ({
               if (!item) return;
 
               const isPerformanceMeasure = performanceMeasures.includes(item);
-              // Get selected months for each quarter with enhanced matching
-              const q1Months = getSelectedMonthsForQuarter(item, 'Q1');
-              const q2Months = getSelectedMonthsForQuarter(item, 'Q2');
-              const q3Months = getSelectedMonthsForQuarter(item, 'Q3');
-              const q4Months = getSelectedMonthsForQuarter(item, 'Q4');
+                // Get selected months for each quarter with enhanced matching
+                const q1Months = getSelectedMonthsForQuarter(item, 'Q1');
+                const q2Months = getSelectedMonthsForQuarter(item, 'Q2');
+                const q3Months = getSelectedMonthsForQuarter(item, 'Q3');
+                const q4Months = getSelectedMonthsForQuarter(item, 'Q4');
 
               let budgetRequired = 0;
               let government = 0;
