@@ -479,13 +479,24 @@ const AdminPlanSummary: React.FC = () => {
       {plan.objectives && plan.objectives.length > 0 ? (
         <div className="bg-white rounded-lg shadow-sm border border-gray-200">
           <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
-            <h3 className="text-lg font-medium text-gray-900">Complete Plan Details (Admin View - No Restrictions)</h3>
+            <h3 className="text-lg font-medium text-gray-900">Complete Plan Details (Admin View)</h3>
             <p className="text-sm text-gray-600 mt-1">
-              Showing ALL data for {plan.organization_name} without organizational filtering
+              Showing all data for {plan.organization_name} - Admin unrestricted view
+            </p>
+            <p className="text-xs text-gray-500 mt-1">
+              Initiative Count Check: {plan.objectives?.reduce((sum: number, obj: any) => sum + (obj.initiatives?.length || 0), 0) || 0} total initiatives loaded
             </p>
           </div>
           
           <div className="p-6">
+            {(() => {
+              console.log('AdminPlanSummary: Rendering PlanReviewTable with objectives:', plan.objectives?.length);
+              plan.objectives?.forEach((obj: any) => {
+                console.log(`  Objective: ${obj.title} has ${obj.initiatives?.length || 0} initiatives`);
+              });
+              return null;
+            })()}
+            
             <PlanReviewTable
               objectives={plan.objectives}
               onSubmit={async () => {}}
@@ -504,7 +515,19 @@ const AdminPlanSummary: React.FC = () => {
         <div className="text-center p-8 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
           <Info className="h-12 w-12 text-gray-400 mx-auto mb-4" />
           <h3 className="text-lg font-medium text-gray-900 mb-2">No Complete Data</h3>
-          <p className="text-gray-500">No complete objectives data available for this plan.</p>
+          <p className="text-gray-500">
+            Could not load complete objectives data for this plan. 
+            {plan?.selected_objectives?.length > 0 ? 
+              `Found ${plan.selected_objectives.length} selected objectives but failed to load their details.` :
+              'No selected objectives found in the plan.'
+            }
+          </p>
+          <div className="mt-4 text-xs text-gray-400">
+            <p>Plan Data Debug:</p>
+            <p>• Selected Objectives IDs: {plan?.selected_objectives?.join(', ') || 'None'}</p>
+            <p>• Organization: {plan?.organization_name} (ID: {plan?.organization})</p>
+            <p>• Plan Status: {plan?.status}</p>
+          </div>
         </div>
       )}
     </div>
