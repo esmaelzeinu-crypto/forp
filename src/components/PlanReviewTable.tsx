@@ -783,19 +783,19 @@ const PlanReviewTable: React.FC<PlanReviewTableProps> = ({
 
                   {/* Q4 Month Columns */}
                   <td className={`px-2 py-4 text-center text-xs border-l-2 border-red-200 ${
-                    isMonthSelected(row.itemData, 'APR') ? 'bg-red-100 text-red-800 font-medium' : 'bg-white text-gray-400'
+                    (row.itemData && isMonthSelected(row.itemData, 'APR')) ? 'bg-red-100 text-red-800 font-medium' : 'bg-white text-gray-400'
                   }`}>
-                    {isMonthSelected(row.itemData, 'APR') ? '✓' : ''}
+                    {(row.itemData && isMonthSelected(row.itemData, 'APR')) ? '✓' : ''}
                   </td>
                   <td className={`px-2 py-4 text-center text-xs ${
-                    isMonthSelected(row.itemData, 'MAY') ? 'bg-red-100 text-red-800 font-medium' : 'bg-white text-gray-400'
+                    (row.itemData && isMonthSelected(row.itemData, 'MAY')) ? 'bg-red-100 text-red-800 font-medium' : 'bg-white text-gray-400'
                   }`}>
-                    {isMonthSelected(row.itemData, 'MAY') ? '✓' : ''}
+                    {(row.itemData && isMonthSelected(row.itemData, 'MAY')) ? '✓' : ''}
                   </td>
                   <td className={`px-2 py-4 text-center text-xs ${
-                    isMonthSelected(row.itemData, 'JUN') ? 'bg-red-100 text-red-800 font-medium' : 'bg-white text-gray-400'
+                    (row.itemData && isMonthSelected(row.itemData, 'JUN')) ? 'bg-red-100 text-red-800 font-medium' : 'bg-white text-gray-400'
                   }`}>
-                    {isMonthSelected(row.itemData, 'JUN') ? '✓' : ''}
+                    {(row.itemData && isMonthSelected(row.itemData, 'JUN')) ? '✓' : ''}
                   </td>
                   <td className="px-3 py-4 text-center text-sm text-red-600 font-medium bg-red-50">
                     {row.Q4Target}

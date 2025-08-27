@@ -502,15 +502,10 @@ class ProgramViewSet(viewsets.ModelViewSet):
 class StrategicInitiativeViewSet(viewsets.ModelViewSet):
     queryset = StrategicInitiative.objects.all()
     serializer_class = StrategicInitiativeSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = []  # Remove authentication requirement for admin viewing
 
     def get_queryset(self):
         queryset = super().get_queryset()
-
-        # Get the user's organizations
-        if self.request.user.is_authenticated:
-            user_organizations = OrganizationUser.objects.filter(user=self.request.user).values_list('organization_id', flat=True)
-        else:
             user_organizations = []
 
         # Filter based on query parameters
@@ -523,13 +518,8 @@ class StrategicInitiativeViewSet(viewsets.ModelViewSet):
         elif program:
             base_query = queryset.filter(program_id=program)
         else:
-            base_query = queryset
-
-        # Return default initiatives OR initiatives from the user's organizations
-        return base_query.filter(
-            Q(is_default=True) |  # All default initiatives
-            Q(is_default=False, organization_id__in=user_organizations)  # Custom initiatives from user's orgs
-        )
+        # ADMIN FIX: Don't filter by organization for admin viewing
+        # Return all initiatives
 
     def perform_create(self, serializer):
         # Get the organization_id from the request data
